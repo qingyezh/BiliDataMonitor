@@ -1,0 +1,12 @@
+{
+  "name": "bili-data-monitor",
+  "version": "0.1.0.0",
+  "private": true,
+  "description": "B站账号与视频数据变化监测工具",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "start": "node src/server/dist/index.js",
+    "dev": "pnpm -r --parallel dev"
+  }
+}

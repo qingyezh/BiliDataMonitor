@@ -1,0 +1,6 @@
+{
+  "port": 8123,
+  "interval_minutes": 5,
+  "default_max_videos": 20,
+  "cookie_mask": "buvi***89A6"
+}
