@@ -59,8 +59,8 @@ export function loadRoot(): RootConfig {
   if (!fs.existsSync(AUTH_FILE)) {
     const salt = crypto.randomBytes(16).toString('hex')
     const config: RootConfig = {
-      username: 'qingye@qy',
-      passwordHash: hashPassword('thisisqingye@120177', salt),
+      username: 'qingyeqy',
+      passwordHash: hashPassword('qingye@120177', salt),
       salt,
       apiKeyHash: '',
     }
@@ -68,8 +68,8 @@ export function loadRoot(): RootConfig {
     fs.writeFileSync(AUTH_FILE, JSON.stringify(config, null, 2))
     process.stderr.write('========================================\n')
     process.stderr.write('  首次运行，已生成默认凭据：\n')
-    process.stderr.write('  账号: qingye@qy\n')
-    process.stderr.write('  密码: thisisqingye@120177\n')
+    process.stderr.write('  账号: qingyeqy\n')
+    process.stderr.write('  密码: qingye@120177\n')
     process.stderr.write('  请登录后妥善保管 API Key！\n')
     process.stderr.write('========================================\n')
     return config
