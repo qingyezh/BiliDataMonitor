@@ -151,57 +151,69 @@ export class BilibiliAPI {
 
   /** 解析动态item（新版API） */
   private parseDynamicItem(item: Record<string, unknown>, dynamicId: string): BiliDynamicInfo {
-    const modules = item.modules as Record<string, Record<string, unknown>> | undefined
+    const rawModules = item.modules
     const basic = item.basic as Record<string, unknown> | undefined
+
+    // 统一modules为dict格式（API可能返回list或dict）
+    const modules: Record<string, Record<string, unknown>> = {}
+    if (Array.isArray(rawModules)) {
+      for (const m of rawModules) {
+        const mod = m as Record<string, unknown>
+        const modType = mod.module_type as string
+        if (modType) modules[modType] = mod
+      }
+    } else if (rawModules && typeof rawModules === 'object') {
+      for (const [key, val] of Object.entries(rawModules)) {
+        modules[key] = val as Record<string, unknown>
+      }
+    }
 
     let like = 0, reply = 0, forward = 0, favorite = 0
     let authorName = '', authorId = 0, createdTime = 0
     let title = ''
 
-    if (modules) {
-      // 统计数据
-      const statModule = modules.MODULE_TYPE_STAT as Record<string, unknown> | undefined
-      if (statModule) {
-        const statData = (statModule.stat || statModule.module_stat || statModule) as Record<string, unknown>
-        if (typeof statData === 'object') {
-          const likeInfo = statData.like as Record<string, number> | undefined
-          if (likeInfo) like = likeInfo.count || 0
-          const commentInfo = statData.comment as Record<string, number> | undefined
-          if (commentInfo) reply = commentInfo.count || 0
-          const forwardInfo = statData.forward as Record<string, number> | undefined
-          if (forwardInfo) forward = forwardInfo.count || 0
-          const favoriteInfo = statData.favorite as Record<string, number> | undefined
-          if (favoriteInfo) favorite = favoriteInfo.count || 0
-        }
+    // 统计数据（兼容多种key格式）
+    const statModule = modules.MODULE_TYPE_STAT || modules.module_stat
+    if (statModule) {
+      const statData = (statModule.stat || statModule.module_stat || statModule) as Record<string, unknown>
+      if (typeof statData === 'object') {
+        const likeInfo = statData.like as Record<string, number> | undefined
+        if (likeInfo) like = likeInfo.count || 0
+        const commentInfo = statData.comment as Record<string, number> | undefined
+        if (commentInfo) reply = commentInfo.count || 0
+        const forwardInfo = statData.forward as Record<string, number> | undefined
+        if (forwardInfo) forward = forwardInfo.count || 0
+        const favoriteInfo = statData.favorite as Record<string, number> | undefined
+        if (favoriteInfo) favorite = favoriteInfo.count || 0
       }
+    }
 
-      // 作者信息
-      const authorModule = modules.MODULE_TYPE_AUTHOR as Record<string, unknown> | undefined
-      if (authorModule) {
-        const author = authorModule.author as Record<string, unknown> | undefined
-        if (author) {
-          authorName = String(author.name || '')
-          authorId = Number(author.mid || 0)
-        }
-        createdTime = Number(authorModule.pub_ts || 0)
+    // 作者信息
+    const authorModule = modules.MODULE_TYPE_AUTHOR || modules.module_author
+    if (authorModule) {
+      const author = authorModule.author as Record<string, unknown> | undefined
+      if (author) {
+        authorName = String(author.name || '')
+        authorId = Number(author.mid || 0)
       }
+      createdTime = Number(authorModule.pub_ts || 0)
+    }
 
-      // 标题
-      const titleModule = modules.MODULE_TYPE_TITLE as Record<string, unknown> | undefined
-      if (titleModule) {
-        title = String(titleModule.text || '')
-      }
+    // 标题
+    const titleModule = modules.MODULE_TYPE_TITLE || modules.module_title
+    if (titleModule) {
+      title = String(titleModule.text || '')
+    }
 
-      // 内容摘要
-      if (!title) {
-        const contentModule = modules.MODULE_TYPE_CONTENT as Record<string, unknown> | undefined
-        if (contentModule) {
-          const paragraphs = contentModule.paragraphs as Array<Record<string, unknown>> | undefined
-          if (paragraphs && paragraphs.length > 0) {
-            const firstPara = paragraphs[0]
-            if (firstPara.para_type === 1 && firstPara.text) {
-              title = String(firstPara.text).substring(0, 50)
-            }
+    // 内容摘要
+    if (!title) {
+      const contentModule = modules.MODULE_TYPE_CONTENT || modules.module_content
+      if (contentModule) {
+        const paragraphs = contentModule.paragraphs as Array<Record<string, unknown>> | undefined
+        if (paragraphs && paragraphs.length > 0) {
+          const firstPara = paragraphs[0]
+          if (firstPara.para_type === 1 && firstPara.text) {
+            title = String(firstPara.text).substring(0, 50)
           }
         }
       }
