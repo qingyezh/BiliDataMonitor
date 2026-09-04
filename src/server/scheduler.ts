@@ -5,6 +5,7 @@ import { loadSettings, getCookie, DATA_DIR } from './config.js'
 import { logger } from './logger.js'
 import {
   getDb, listTasks, markTaskRun, writeUpSnapshot, writeVideoSnapshot,
+  writeDynamicSnapshot, writeColumnSnapshot,
   insertUpHistory, getSchedulerTaskCounts, type VideoSnapshotInput,
 } from './database.js'
 import { BilibiliAPI, parseLengthToSeconds } from './crawler/bilibili.js'
@@ -87,7 +88,7 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
         markTaskRun(task.id, 'ok', null, now + intervalMs)
         logger.info(`[调度] UP任务完成: ${task.name}(${task.target}) ${inputs.length}个视频`)
         return true
-      } else {
+      } else if (task.task_type === 'video') {
         const info = await api.getVideoInfo(task.target)
         if (!info) throw new Error('视频不存在或请求失败')
         writeVideoSnapshot({
@@ -102,6 +103,39 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
         }, now)
         markTaskRun(task.id, 'ok', null, now + intervalMs)
         logger.info(`[调度] 视频任务完成: ${task.name}(${task.target}) play=${info.stat?.view}`)
+        return true
+      } else if (task.task_type === 'dynamic') {
+        let dynInfo = await api.getDynamicDetail(task.target)
+        if (!dynInfo) dynInfo = await api.getDynamicDetailOld(task.target)
+        if (!dynInfo) throw new Error('动态不存在或请求失败')
+        writeDynamicSnapshot(task.target, {
+          type: dynInfo.type,
+          title: dynInfo.title,
+          author_name: dynInfo.author_name,
+          author_id: dynInfo.author_id,
+          like: dynInfo.stat.like,
+          reply: dynInfo.stat.reply,
+          forward: dynInfo.stat.forward,
+          favorite: dynInfo.stat.favorite || 0,
+          created_time: dynInfo.created_time,
+        }, now)
+        markTaskRun(task.id, 'ok', null, now + intervalMs)
+        logger.info(`[调度] 动态任务完成: ${task.name}(${task.target}) like=${dynInfo.stat.like} reply=${dynInfo.stat.reply} forward=${dynInfo.stat.forward}`)
+        return true
+      } else if (task.task_type === 'column') {
+        const colInfo = await api.getColumnInfo(task.target)
+        if (!colInfo) throw new Error('专栏不存在或请求失败')
+        writeColumnSnapshot(task.target, {
+          title: colInfo.title,
+          author_name: colInfo.author_name,
+          author_id: colInfo.author_id,
+          like: colInfo.like,
+          reply: colInfo.reply,
+          favorite: colInfo.favorite,
+          created_time: colInfo.created_time,
+        }, now)
+        markTaskRun(task.id, 'ok', null, now + intervalMs)
+        logger.info(`[调度] 专栏任务完成: ${task.name}(${task.target}) like=${colInfo.like} reply=${colInfo.reply}`)
         return true
       }
     } catch (e) {

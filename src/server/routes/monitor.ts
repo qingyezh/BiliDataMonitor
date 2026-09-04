@@ -5,6 +5,7 @@ import { refreshTaskNow, refreshAllNow } from '../scheduler.js'
 import { BilibiliAPI } from '../crawler/bilibili.js'
 import { getCookie, loadSettings } from '../config.js'
 import { requireRoot } from '../middleware.js'
+import type { TaskType } from '../types.js'
 
 export default async function monitorRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tasks', async () => {
@@ -14,8 +15,8 @@ export default async function monitorRoutes(app: FastifyInstance): Promise<void>
   app.post<{ Body: { task_type: string; target: string; name?: string; max_videos?: number } }>('/tasks', { preHandler: [requireRoot] }, async (req, reply) => {
     const { task_type, target, name, max_videos } = req.body || {}
     const settings = loadSettings()
-    if (task_type !== 'up' && task_type !== 'video') {
-      return reply.code(400).send({ success: false, message: 'task_type 必须是 up 或 video' })
+    if (!['up', 'video', 'dynamic', 'column'].includes(task_type)) {
+      return reply.code(400).send({ success: false, message: 'task_type 必须是 up、video、dynamic 或 column' })
     }
     const t = String(target || '').trim()
     if (!t) return reply.code(400).send({ success: false, message: 'target 不能为空' })
@@ -34,17 +35,26 @@ export default async function monitorRoutes(app: FastifyInstance): Promise<void>
           return reply.code(404).send({ success: false, message: 'UP主不存在或无视频' })
         }
         displayName = vlist[0].author || displayName
-      } else {
+      } else if (task_type === 'video') {
         const info = await api.getVideoInfo(t)
         if (!info) return reply.code(404).send({ success: false, message: '视频不存在' })
         displayName = info.title.slice(0, 60)
+      } else if (task_type === 'dynamic') {
+        let dynInfo = await api.getDynamicDetail(t)
+        if (!dynInfo) dynInfo = await api.getDynamicDetailOld(t)
+        if (!dynInfo) return reply.code(404).send({ success: false, message: '动态不存在' })
+        displayName = dynInfo.title || `动态 ${t}`
+      } else if (task_type === 'column') {
+        const colInfo = await api.getColumnInfo(t)
+        if (!colInfo) return reply.code(404).send({ success: false, message: '专栏不存在' })
+        displayName = colInfo.title || `专栏 ${t}`
       }
     } catch {
       // 校验失败但允许创建（下次轮询会记录错误）
     }
 
     const task = createTask({
-      task_type,
+      task_type: task_type as TaskType,
       target: t,
       name: displayName,
       enabled: 1,
@@ -91,6 +101,6 @@ export default async function monitorRoutes(app: FastifyInstance): Promise<void>
 }
 
 function getTaskByType(type: string, target: string) {
-  return getTaskByTarget(type as 'up' | 'video', target)
+  return getTaskByTarget(type as 'up' | 'video' | 'dynamic' | 'column', target)
 }
 

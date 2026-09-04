@@ -38,7 +38,7 @@ function migrate(d: SqliteDB): void {
   d.exec(`
     CREATE TABLE IF NOT EXISTS monitor_tasks (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_type   TEXT NOT NULL CHECK(task_type IN ('up','video')),
+      task_type   TEXT NOT NULL CHECK(task_type IN ('up','video','dynamic','column')),
       target      TEXT NOT NULL,
       name        TEXT NOT NULL,
       enabled     INTEGER NOT NULL DEFAULT 1,
@@ -151,6 +151,59 @@ function migrate(d: SqliteDB): void {
       avg_play      INTEGER NOT NULL DEFAULT 0,
       sample_count  INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS dynamics (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      dynamic_id    TEXT NOT NULL,
+      type          TEXT NOT NULL DEFAULT 'dynamic',
+      title         TEXT NOT NULL DEFAULT '',
+      author_name   TEXT NOT NULL DEFAULT '',
+      author_id     INTEGER NOT NULL DEFAULT 0,
+      like_count    INTEGER NOT NULL DEFAULT 0,
+      reply_count   INTEGER NOT NULL DEFAULT 0,
+      forward_count INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      created_time  INTEGER NOT NULL DEFAULT 0,
+      updated_at    INTEGER NOT NULL,
+      UNIQUE(dynamic_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dynamics_updated ON dynamics(updated_at);
+
+    CREATE TABLE IF NOT EXISTS dynamic_history (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      dynamic_id     TEXT NOT NULL,
+      like_count     INTEGER NOT NULL DEFAULT 0,
+      reply_count    INTEGER NOT NULL DEFAULT 0,
+      forward_count  INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      created_at     INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dyn_hist_ts ON dynamic_history(dynamic_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS columns (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      cvid           TEXT NOT NULL,
+      title          TEXT NOT NULL DEFAULT '',
+      author_name    TEXT NOT NULL DEFAULT '',
+      author_id      INTEGER NOT NULL DEFAULT 0,
+      like_count     INTEGER NOT NULL DEFAULT 0,
+      reply_count    INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      created_time   INTEGER NOT NULL DEFAULT 0,
+      updated_at     INTEGER NOT NULL,
+      UNIQUE(cvid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_columns_updated ON columns(updated_at);
+
+    CREATE TABLE IF NOT EXISTS column_history (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      cvid           TEXT NOT NULL,
+      like_count     INTEGER NOT NULL DEFAULT 0,
+      reply_count    INTEGER NOT NULL DEFAULT 0,
+      favorite_count INTEGER NOT NULL DEFAULT 0,
+      created_at     INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_col_hist_ts ON column_history(cvid, created_at);
   `)
 
   // 迁移：videos 表补充 created（视频发布时间）列
@@ -351,6 +404,99 @@ export function writeVideoSnapshot(input: VideoSnapshotInput, now = Date.now()):
         updated_at = excluded.updated_at
     `).run({ ...input, updated_at: now })
     recomputeVideoMetrics(input.bvid, now)
+    return { changed: isChanged }
+  })
+  return tx()
+}
+
+/** 写入动态快照 */
+export function writeDynamicSnapshot(dynamicId: string, info: {
+  type: string; title: string; author_name: string; author_id: number;
+  like: number; reply: number; forward: number; favorite: number;
+  created_time: number;
+}, now = Date.now()): { changed: boolean } {
+  const d = getDb()
+  const tx = d.transaction(() => {
+    const existing = d.prepare('SELECT * FROM dynamics WHERE dynamic_id = ?').get(dynamicId) as {
+      like_count: number; reply_count: number; forward_count: number; favorite_count: number;
+    } | undefined
+    const isChanged = !existing ||
+      existing.like_count !== info.like ||
+      existing.reply_count !== info.reply ||
+      existing.forward_count !== info.forward ||
+      existing.favorite_count !== info.favorite
+    if (isChanged) {
+      const lastHist = d.prepare(
+        'SELECT like_count, reply_count, forward_count, favorite_count, created_at FROM dynamic_history WHERE dynamic_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(dynamicId) as { like_count: number; reply_count: number; forward_count: number; favorite_count: number; created_at: number } | undefined
+      const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
+        lastHist.like_count === info.like && lastHist.reply_count === info.reply &&
+        lastHist.forward_count === info.forward && lastHist.favorite_count === info.favorite
+      if (!tooClose) {
+        d.prepare('INSERT INTO dynamic_history (dynamic_id, like_count, reply_count, forward_count, favorite_count, created_at) VALUES (?,?,?,?,?,?)')
+          .run(dynamicId, info.like, info.reply, info.forward, info.favorite, now)
+      }
+    }
+    d.prepare(`
+      INSERT INTO dynamics (dynamic_id, type, title, author_name, author_id, like_count, reply_count, forward_count, favorite_count, created_time, updated_at)
+      VALUES (@dynamic_id, @type, @title, @author_name, @author_id, @like_count, @reply_count, @forward_count, @favorite_count, @created_time, @updated_at)
+      ON CONFLICT(dynamic_id) DO UPDATE SET
+        type = excluded.type, title = excluded.title, author_name = excluded.author_name,
+        author_id = excluded.author_id, like_count = excluded.like_count, reply_count = excluded.reply_count,
+        forward_count = excluded.forward_count, favorite_count = excluded.favorite_count,
+        created_time = excluded.created_time, updated_at = excluded.updated_at
+    `).run({
+      dynamic_id: dynamicId, type: info.type, title: info.title,
+      author_name: info.author_name, author_id: info.author_id,
+      like_count: info.like, reply_count: info.reply,
+      forward_count: info.forward, favorite_count: info.favorite,
+      created_time: info.created_time, updated_at: now,
+    })
+    return { changed: isChanged }
+  })
+  return tx()
+}
+
+/** 写入专栏快照 */
+export function writeColumnSnapshot(cvid: string, info: {
+  title: string; author_name: string; author_id: number;
+  like: number; reply: number; favorite: number;
+  created_time: number;
+}, now = Date.now()): { changed: boolean } {
+  const d = getDb()
+  const tx = d.transaction(() => {
+    const existing = d.prepare('SELECT * FROM columns WHERE cvid = ?').get(cvid) as {
+      like_count: number; reply_count: number; favorite_count: number;
+    } | undefined
+    const isChanged = !existing ||
+      existing.like_count !== info.like ||
+      existing.reply_count !== info.reply ||
+      existing.favorite_count !== info.favorite
+    if (isChanged) {
+      const lastHist = d.prepare(
+        'SELECT like_count, reply_count, favorite_count, created_at FROM column_history WHERE cvid = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(cvid) as { like_count: number; reply_count: number; favorite_count: number; created_at: number } | undefined
+      const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
+        lastHist.like_count === info.like && lastHist.reply_count === info.reply &&
+        lastHist.favorite_count === info.favorite
+      if (!tooClose) {
+        d.prepare('INSERT INTO column_history (cvid, like_count, reply_count, favorite_count, created_at) VALUES (?,?,?,?,?)')
+          .run(cvid, info.like, info.reply, info.favorite, now)
+      }
+    }
+    d.prepare(`
+      INSERT INTO columns (cvid, title, author_name, author_id, like_count, reply_count, favorite_count, created_time, updated_at)
+      VALUES (@cvid, @title, @author_name, @author_id, @like_count, @reply_count, @favorite_count, @created_time, @updated_at)
+      ON CONFLICT(cvid) DO UPDATE SET
+        title = excluded.title, author_name = excluded.author_name, author_id = excluded.author_id,
+        like_count = excluded.like_count, reply_count = excluded.reply_count,
+        favorite_count = excluded.favorite_count, created_time = excluded.created_time,
+        updated_at = excluded.updated_at
+    `).run({
+      cvid, title: info.title, author_name: info.author_name, author_id: info.author_id,
+      like_count: info.like, reply_count: info.reply, favorite_count: info.favorite,
+      created_time: info.created_time, updated_at: now,
+    })
     return { changed: isChanged }
   })
   return tx()

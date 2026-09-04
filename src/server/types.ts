@@ -1,11 +1,11 @@
 // 共享类型定义
 
-export type TaskType = 'up' | 'video'
+export type TaskType = 'up' | 'video' | 'dynamic' | 'column'
 
 export interface MonitorTask {
   id: number
   task_type: TaskType
-  target: string      // uid 或 bvid
+  target: string      // uid 或 bvid 或 dynamic_id 或 cvid
   name: string
   enabled: number     // 0/1
   max_videos: number  // UP专属：0=全部，N=仅最新N个
@@ -91,6 +91,53 @@ export interface VideoMetrics {
   peak_play: number
   avg_play: number
   sample_count: number
+}
+
+export interface DynamicRow {
+  id: number
+  dynamic_id: string
+  type: string
+  title: string
+  author_name: string
+  author_id: number
+  like_count: number
+  reply_count: number
+  forward_count: number
+  favorite_count: number
+  created_time: number
+  updated_at: number
+}
+
+export interface DynamicHistoryRow {
+  id: number
+  dynamic_id: string
+  like_count: number
+  reply_count: number
+  forward_count: number
+  favorite_count: number
+  created_at: number
+}
+
+export interface ColumnRow {
+  id: number
+  cvid: string
+  title: string
+  author_name: string
+  author_id: number
+  like_count: number
+  reply_count: number
+  favorite_count: number
+  created_time: number
+  updated_at: number
+}
+
+export interface ColumnHistoryRow {
+  id: number
+  cvid: string
+  like_count: number
+  reply_count: number
+  favorite_count: number
+  created_at: number
 }
 
 export interface AppSettings {

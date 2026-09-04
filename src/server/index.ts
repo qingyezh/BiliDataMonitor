@@ -10,6 +10,8 @@ import { startScheduler } from './scheduler.js'
 import monitorRoutes from './routes/monitor.js'
 import upRoutes from './routes/up.js'
 import videoRoutes from './routes/video.js'
+import dynamicRoutes from './routes/dynamic.js'
+import columnRoutes from './routes/column.js'
 import systemRoutes from './routes/system.js'
 import authRoutes from './routes/auth.js'
 import { authMiddleware } from './middleware.js'
@@ -59,6 +61,8 @@ async function main(): Promise<void> {
   app.register(monitorRoutes, { prefix: '/api/monitor' })
   app.register(upRoutes, { prefix: '/api/up' })
   app.register(videoRoutes, { prefix: '/api/video' })
+  app.register(dynamicRoutes, { prefix: '/api/dynamic' })
+  app.register(columnRoutes, { prefix: '/api/column' })
   app.register(systemRoutes, { prefix: '/api/system' })
 
   // 静态托管前端构建产物
