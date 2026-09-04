@@ -188,13 +188,17 @@ export class BilibiliAPI {
       }
     }
 
-    // 作者信息
+    // 作者信息（兼容两种结构：author.name 或直接 name）
     const authorModule = modules.MODULE_TYPE_AUTHOR || modules.module_author
     if (authorModule) {
       const author = authorModule.author as Record<string, unknown> | undefined
       if (author) {
         authorName = String(author.name || '')
         authorId = Number(author.mid || 0)
+      } else {
+        // 扁平结构：name/mid 直接在模块根级别
+        authorName = String(authorModule.name || '')
+        authorId = Number(authorModule.mid || 0)
       }
       createdTime = Number(authorModule.pub_ts || 0)
     }
