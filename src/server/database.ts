@@ -225,9 +225,16 @@ export function listTasks(): (MonitorTask & { summary?: unknown })[] {
   const d = getDb()
   const tasks = d.prepare('SELECT * FROM monitor_tasks ORDER BY id DESC').all() as MonitorTask[]
   return tasks.map(t => {
-    const summary = t.task_type === 'up'
-      ? d.prepare('SELECT * FROM up_metrics WHERE mid = ?').get(t.target)
-      : d.prepare('SELECT * FROM video_metrics WHERE bvid = ?').get(t.target)
+    let summary: unknown
+    if (t.task_type === 'up') {
+      summary = d.prepare('SELECT * FROM up_metrics WHERE mid = ?').get(t.target)
+    } else if (t.task_type === 'video') {
+      summary = d.prepare('SELECT * FROM video_metrics WHERE bvid = ?').get(t.target)
+    } else if (t.task_type === 'dynamic') {
+      summary = d.prepare('SELECT * FROM dynamics WHERE dynamic_id = ?').get(t.target)
+    } else if (t.task_type === 'column') {
+      summary = d.prepare('SELECT * FROM columns WHERE cvid = ?').get(t.target)
+    }
     return { ...t, summary: summary || undefined }
   })
 }

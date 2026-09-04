@@ -40,7 +40,7 @@ function unwrap<T>(res: any): T {
 // ── 类型 ──
 export interface MonitorTask {
   id: number
-  task_type: 'up' | 'video'
+  task_type: 'up' | 'video' | 'dynamic' | 'column'
   target: string
   name: string
   enabled: number
@@ -168,6 +168,14 @@ export const monitorApi = {
   // 视频
   videoDetail: (bvid: string) => api.get(`/video/${bvid}/detail`).then(r => unwrap<VideoDetail>(r)),
   videoHistory: (bvid: string) => api.get(`/video/${bvid}/history`).then(r => unwrap<VideoHistoryPoint[]>(r)),
+
+  // 动态
+  dynamicDetail: (id: string) => api.get(`/dynamic/${id}/detail`).then(r => unwrap<any>(r)),
+  dynamicHistory: (id: string) => api.get(`/dynamic/${id}/history`).then(r => unwrap<any[]>(r)),
+
+  // 专栏
+  columnDetail: (cvid: string) => api.get(`/column/${cvid}/detail`).then(r => unwrap<any>(r)),
+  columnHistory: (cvid: string) => api.get(`/column/${cvid}/history`).then(r => unwrap<any[]>(r)),
 
   // 系统
   settings: () => api.get('/system/settings').then(r => unwrap<AppSettings>(r)),

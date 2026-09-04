@@ -267,6 +267,73 @@
         </div>
       </div>
     </template>
+
+    <!-- 动态详情 -->
+    <template v-else-if="type === 'dynamic'">
+      <div class="content-card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span>📢 {{ dynamicMetrics?.title || `动态 ${target}` }}</span>
+          <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
+        </div>
+        <div v-if="dynamicMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+          <div class="stat-card"><div class="label">作者</div><div class="value">{{ dynamicMetrics.author_name || '--' }}</div></div>
+          <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(dynamicMetrics.like_count) }}</div></div>
+          <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(dynamicMetrics.reply_count) }}</div></div>
+          <div class="stat-card"><div class="label">转发</div><div class="value" style="color: #67c23a">{{ formatNum(dynamicMetrics.forward_count) }}</div></div>
+          <div class="stat-card"><div class="label">类型</div><div class="value">{{ dynamicMetrics.type || '--' }}</div></div>
+          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(dynamicMetrics.created_time) }}</div></div>
+        </div>
+        <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
+      </div>
+
+      <div class="content-card" v-if="dynamicHistory.length > 0">
+        <div class="card-title">📈 数据变化趋势</div>
+        <div style="position: relative">
+          <LineChart
+            :categories="dynamicHistDates"
+            :values="dynamicHistSeries"
+            :show-trend-line="true"
+            :trend-line-series="[0, 1, 2]"
+          />
+        </div>
+        <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
+          点赞（左轴）| 评论/转发（右轴）
+        </div>
+      </div>
+    </template>
+
+    <!-- 专栏详情 -->
+    <template v-else-if="type === 'column'">
+      <div class="content-card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span>📝 {{ columnMetrics?.title || `专栏 ${target}` }}</span>
+          <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
+        </div>
+        <div v-if="columnMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+          <div class="stat-card"><div class="label">作者</div><div class="value">{{ columnMetrics.author_name || '--' }}</div></div>
+          <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(columnMetrics.like_count) }}</div></div>
+          <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(columnMetrics.reply_count) }}</div></div>
+          <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
+          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(columnMetrics.created_time) }}</div></div>
+        </div>
+        <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
+      </div>
+
+      <div class="content-card" v-if="columnHistory.length > 0">
+        <div class="card-title">📈 数据变化趋势</div>
+        <div style="position: relative">
+          <LineChart
+            :categories="columnHistDates"
+            :values="columnHistSeries"
+            :show-trend-line="true"
+            :trend-line-series="[0, 1, 2]"
+          />
+        </div>
+        <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
+          点赞（左轴）| 评论/收藏（右轴）
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -344,6 +411,14 @@ const videoSortBy = ref('created')
 const videoMetrics = ref<VideoMetrics | null>(null)
 const videoRealtime = ref<{ play: number; danmaku: number; reply: number } | null>(null)
 const videoHistory = ref<VideoHistoryPoint[]>([])
+
+// 动态数据
+const dynamicMetrics = ref<any>(null)
+const dynamicHistory = ref<any[]>([])
+
+// 专栏数据
+const columnMetrics = ref<any>(null)
+const columnHistory = ref<any[]>([])
 
 const videoRatio = computed(() => {
   const play = videoRealtime.value?.play ?? videoHistory.value[videoHistory.value.length - 1]?.play ?? 0
@@ -531,6 +606,32 @@ const videoHistSeries = computed(() => {
   })
 })
 
+// ── 动态图表 ──
+const dynamicHistDates = computed(() => {
+  return formatSmartTimestamps(dynamicHistory.value.map(h => h.created_at))
+})
+const dynamicHistSeries = computed(() => {
+  const colors = ['#409eff', '#e6a23c', '#67c23a']
+  return [
+    { name: '点赞', values: dynamicHistory.value.map(h => h.like_count), color: colors[0], yAxisIndex: 0 },
+    { name: '评论', values: dynamicHistory.value.map(h => h.reply_count), color: colors[1], yAxisIndex: 1 },
+    { name: '转发', values: dynamicHistory.value.map(h => h.forward_count), color: colors[2], yAxisIndex: 1 },
+  ]
+})
+
+// ── 专栏图表 ──
+const columnHistDates = computed(() => {
+  return formatSmartTimestamps(columnHistory.value.map(h => h.created_at))
+})
+const columnHistSeries = computed(() => {
+  const colors = ['#409eff', '#e6a23c', '#67c23a']
+  return [
+    { name: '点赞', values: columnHistory.value.map(h => h.like_count), color: colors[0], yAxisIndex: 0 },
+    { name: '评论', values: columnHistory.value.map(h => h.reply_count), color: colors[1], yAxisIndex: 1 },
+    { name: '收藏', values: columnHistory.value.map(h => h.favorite_count), color: colors[2], yAxisIndex: 1 },
+  ]
+})
+
 async function loadData() {
   loading.value = true
   try {
@@ -550,7 +651,7 @@ async function loadData() {
         durationDist.value = analysis.duration_dist || []
       }
       await loadVideos()
-    } else {
+    } else if (type === 'video') {
       const [detail, history] = await Promise.all([
         monitorApi.videoDetail(target).catch(() => null),
         monitorApi.videoHistory(target).catch(() => [] as VideoHistoryPoint[]),
@@ -558,6 +659,26 @@ async function loadData() {
       videoMetrics.value = detail?.metrics || null
       videoRealtime.value = detail?.realtime || null
       videoHistory.value = history
+    } else if (type === 'dynamic') {
+      const [detail, history] = await Promise.all([
+        monitorApi.dynamicDetail(target).catch(() => null),
+        monitorApi.dynamicHistory(target).catch(() => [] as any[]),
+      ])
+      dynamicMetrics.value = detail?.metrics || null
+      if (detail?.realtime) {
+        dynamicMetrics.value = { ...dynamicMetrics.value, ...detail.realtime }
+      }
+      dynamicHistory.value = history
+    } else if (type === 'column') {
+      const [detail, history] = await Promise.all([
+        monitorApi.columnDetail(target).catch(() => null),
+        monitorApi.columnHistory(target).catch(() => [] as any[]),
+      ])
+      columnMetrics.value = detail?.metrics || null
+      if (detail?.realtime) {
+        columnMetrics.value = { ...columnMetrics.value, ...detail.realtime }
+      }
+      columnHistory.value = history
     }
   } finally {
     loading.value = false
