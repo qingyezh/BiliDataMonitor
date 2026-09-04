@@ -288,6 +288,9 @@ export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now =
       INSERT INTO video_history (bvid, play, video_review, comment, duration, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `)
+    const selLastHist = d.prepare(
+      'SELECT play, video_review, comment, duration, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
+    )
 
     let changed = 0
     for (const v of inputs) {
@@ -298,8 +301,14 @@ export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now =
         existing.comment !== v.comment ||
         existing.duration !== v.duration
       if (isChanged) {
-        insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, now)
-        changed++
+        const lastHist = selLastHist.get(v.bvid) as { play: number; video_review: number; comment: number; duration: number; created_at: number } | undefined
+        const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
+          lastHist.play === v.play && lastHist.video_review === v.video_review &&
+          lastHist.comment === v.comment && lastHist.duration === v.duration
+        if (!tooClose) {
+          insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, now)
+          changed++
+        }
       }
       upsert.run({ ...v, updated_at: now })
     }
@@ -321,8 +330,16 @@ export function writeVideoSnapshot(input: VideoSnapshotInput, now = Date.now()):
       existing.comment !== input.comment ||
       existing.duration !== input.duration
     if (isChanged) {
-      d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, created_at) VALUES (?,?,?,?,?,?)')
-        .run(input.bvid, input.play, input.video_review, input.comment, input.duration, now)
+      const lastHist = d.prepare(
+        'SELECT play, video_review, comment, duration, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(input.bvid) as { play: number; video_review: number; comment: number; duration: number; created_at: number } | undefined
+      const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
+        lastHist.play === input.play && lastHist.video_review === input.video_review &&
+        lastHist.comment === input.comment && lastHist.duration === input.duration
+      if (!tooClose) {
+        d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, created_at) VALUES (?,?,?,?,?,?)')
+          .run(input.bvid, input.play, input.video_review, input.comment, input.duration, now)
+      }
     }
     d.prepare(`
       INSERT INTO videos (mid, bvid, title, play, video_review, comment, duration, created, updated_at)
@@ -381,9 +398,12 @@ export function recomputeUpCaches(mid: string, now: number): void {
   })
 
   // up_daily_stats（delta 相对上一轮 up_history 的聚合值）
-  const dateStr = new Date(now).toISOString().slice(0, 10)
+  const todayStart = new Date(now)
+  todayStart.setHours(0, 0, 0, 0)
+  const todayStartMs = todayStart.getTime()
   const prev = d.prepare('SELECT total_views, total_danmaku, total_comments FROM up_history WHERE mid = ? AND created_at < ? ORDER BY created_at DESC LIMIT 1')
-    .get(mid, dateStr) as { total_views: number; total_danmaku: number; total_comments: number } | undefined
+    .get(mid, todayStartMs) as { total_views: number; total_danmaku: number; total_comments: number } | undefined
+  const dateStr = new Date(now).toISOString().slice(0, 10)
   d.prepare(`
     INSERT INTO up_daily_stats (mid, date, total_views, delta_views, delta_danmaku, delta_comments)
     VALUES (?, ?, ?, ?, ?, ?)

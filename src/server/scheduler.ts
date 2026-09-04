@@ -63,6 +63,7 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
 
   const api = new BilibiliAPI(getCookie())
   let lastError: Error | null = null
+  const now = Date.now()
   
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -78,7 +79,6 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
           duration: parseLengthToSeconds(v.length),
           created: v.created,
         }))
-        const now = Date.now()
         if (inputs.length > 0) {
           writeUpSnapshot(task.target, inputs, now)
           insertUpHistory(task.target, now)
@@ -90,7 +90,6 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
       } else {
         const info = await api.getVideoInfo(task.target)
         if (!info) throw new Error('视频不存在或请求失败')
-        const now = Date.now()
         writeVideoSnapshot({
           mid: String(info.owner?.mid || ''),
           bvid: info.bvid,
@@ -116,7 +115,7 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
   
   // 所有重试都失败
   const msg = lastError?.message || '未知错误'
-  markTaskRun(task.id, 'error', msg)
+  markTaskRun(task.id, 'error', msg, now + intervalMs)
   logger.error(`[调度] 任务失败: ${task.name}(${task.target})`, msg)
   return true
 }
