@@ -36,9 +36,9 @@
             </el-link>
           </template>
         </el-table-column>
-        <el-table-column label="目标" width="130">
+        <el-table-column label="目标" min-width="140">
           <template #default="{ row }">
-            <span style="font-family: monospace; font-size: 12px">{{ row.target }}</span>
+            <span style="font-family: monospace; font-size: 12px" :title="row.target">{{ row.target.length > 16 ? row.target.slice(0, 8) + '...' + row.target.slice(-6) : row.target }}</span>
           </template>
         </el-table-column>
         <el-table-column label="指标摘要" min-width="280">

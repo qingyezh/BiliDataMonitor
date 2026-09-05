@@ -280,8 +280,8 @@
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(dynamicMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(dynamicMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">转发</div><div class="value" style="color: #67c23a">{{ formatNum(dynamicMetrics.forward_count) }}</div></div>
-          <div class="stat-card"><div class="label">类型</div><div class="value">{{ dynamicMetrics.type || '--' }}</div></div>
-          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(dynamicMetrics.created_time) }}</div></div>
+          <div class="stat-card"><div class="label">类型</div><div class="value">{{ dynamicTypeName(dynamicMetrics.type) }}</div></div>
+          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(dynamicMetrics.created_time * 1000) }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -380,7 +380,7 @@
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(columnMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(columnMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
-          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(columnMetrics.created_time) }}</div></div>
+          <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(columnMetrics.created_time * 1000) }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -487,6 +487,21 @@ function renderLatex(latex: string): string {
   } catch {
     return latex
   }
+}
+
+function dynamicTypeName(type: string): string {
+  const map: Record<string, string> = {
+    DYNAMIC_TYPE_DRAW: '图文',
+    DYNAMIC_TYPE_FORWARD: '转发',
+    DYNAMIC_TYPE_AV: '视频',
+    DYNAMIC_TYPE_ARTICLE: '专栏',
+    DYNAMIC_TYPE_LIVE: '直播',
+    DYNAMIC_TYPE_PGC: '番剧',
+    DYNAMIC_TYPE_UGC_SEASON: '合集',
+    DYNAMIC_TYPE_WORD: '文字',
+    DYNAMIC_TYPE_NONE: '无内容',
+  }
+  return map[type] || type || '--'
 }
 
 const route = useRoute()
