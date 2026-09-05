@@ -287,17 +287,83 @@
       </div>
 
       <div class="content-card" v-if="dynamicHistory.length > 0">
-        <div class="card-title">📈 数据变化趋势</div>
+        <div class="card-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span style="flex: 0 0 auto">📈 数据变化趋势</span>
+          <div style="flex: 1; display: flex; justify-content: center">
+            <div style="display: flex; align-items: center; gap: 4px; width: 312px">
+              <el-date-picker
+                v-model="dynamicDateRange"
+                type="datetimerange"
+                size="small"
+                range-separator="~"
+                start-placeholder="开始"
+                end-placeholder="结束"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="MM/DD HH:mm"
+                style="flex: 1"
+              />
+              <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="dynamicShowAll = !dynamicShowAll; if(dynamicShowAll) dynamicDateRange = null">
+                {{ dynamicShowAll ? '收起' : '全部' }}
+              </el-button>
+            </div>
+          </div>
+          <div style="flex: 0 0 auto; display: flex; align-items: center; gap: 8px">
+            <el-radio-group v-model="dynamicHistMode" size="small">
+              <el-radio-button value="raw">原始值</el-radio-button>
+              <el-radio-button value="delta">增量</el-radio-button>
+            </el-radio-group>
+            <el-popover placement="bottom" :width="200" trigger="click">
+              <template #reference>
+                <el-switch size="small" active-text="标签" :model-value="dynamicShowLikeLabel || dynamicShowReplyLabel || dynamicShowForwardLabel" />
+              </template>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <el-switch v-model="dynamicShowLikeLabel" size="small" active-text="点赞" />
+                <el-switch v-model="dynamicShowReplyLabel" size="small" active-text="评论" />
+                <el-switch v-model="dynamicShowForwardLabel" size="small" active-text="转发" />
+              </div>
+            </el-popover>
+          </div>
+        </div>
         <div style="position: relative">
           <LineChart
+            ref="dynamicChartRef"
             :categories="dynamicHistDates"
             :values="dynamicHistSeries"
+            :log-mode="dynamicLogMode"
+            :left-axis-log="dynamicLeftAxisLog"
+            :right-axis-log="dynamicRightAxisLog"
+            :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            @trend-formulas="dynamicFormulas = $event"
           />
+          <div class="chart-controls">
+            <div class="chart-controls-left">
+              <el-switch v-model="dynamicLogMode" size="small" active-text="对数" />
+              <template v-if="dynamicLogMode">
+                <el-switch v-model="dynamicLeftAxisLog" size="small" active-text="左轴" />
+                <el-switch v-model="dynamicRightAxisLog" size="small" active-text="右轴" />
+              </template>
+            </div>
+            <div class="chart-controls-right">
+              <el-button size="small" @click="dynamicChartRef?.exportCsv()">
+                <el-icon><Download /></el-icon> 导出CSV
+              </el-button>
+              <el-button size="small" @click="dynamicChartRef?.saveChart()">
+                <el-icon><Picture /></el-icon> 保存PNG
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <div v-if="dynamicFormulas.length > 0" style="margin-top: 8px; padding: 12px 16px; background: var(--bg); border-radius: 6px; text-align: center">
+          <div v-for="f in dynamicFormulas" :key="f.name" style="margin-bottom: 8px; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px">
+            <span style="font-weight: 600; color: var(--text-secondary); white-space: nowrap">{{ f.name }}：</span>
+            <span v-html="renderLatex(f.formula)"></span>
+          </div>
         </div>
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
-          点赞（左轴）| 评论/转发（右轴）
+          <template v-if="dynamicHistMode === 'raw'">点赞（左轴）| 评论/转发（右轴）</template>
+          <template v-else>增量模式：相邻快照差值（不含首日），负值红点标记</template>
         </div>
       </div>
     </template>
@@ -320,17 +386,83 @@
       </div>
 
       <div class="content-card" v-if="columnHistory.length > 0">
-        <div class="card-title">📈 数据变化趋势</div>
+        <div class="card-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span style="flex: 0 0 auto">📈 数据变化趋势</span>
+          <div style="flex: 1; display: flex; justify-content: center">
+            <div style="display: flex; align-items: center; gap: 4px; width: 312px">
+              <el-date-picker
+                v-model="columnDateRange"
+                type="datetimerange"
+                size="small"
+                range-separator="~"
+                start-placeholder="开始"
+                end-placeholder="结束"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="MM/DD HH:mm"
+                style="flex: 1"
+              />
+              <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="columnShowAll = !columnShowAll; if(columnShowAll) columnDateRange = null">
+                {{ columnShowAll ? '收起' : '全部' }}
+              </el-button>
+            </div>
+          </div>
+          <div style="flex: 0 0 auto; display: flex; align-items: center; gap: 8px">
+            <el-radio-group v-model="columnHistMode" size="small">
+              <el-radio-button value="raw">原始值</el-radio-button>
+              <el-radio-button value="delta">增量</el-radio-button>
+            </el-radio-group>
+            <el-popover placement="bottom" :width="200" trigger="click">
+              <template #reference>
+                <el-switch size="small" active-text="标签" :model-value="columnShowLikeLabel || columnShowReplyLabel || columnShowFavoriteLabel" />
+              </template>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <el-switch v-model="columnShowLikeLabel" size="small" active-text="点赞" />
+                <el-switch v-model="columnShowReplyLabel" size="small" active-text="评论" />
+                <el-switch v-model="columnShowFavoriteLabel" size="small" active-text="收藏" />
+              </div>
+            </el-popover>
+          </div>
+        </div>
         <div style="position: relative">
           <LineChart
+            ref="columnChartRef"
             :categories="columnHistDates"
             :values="columnHistSeries"
+            :log-mode="columnLogMode"
+            :left-axis-log="columnLeftAxisLog"
+            :right-axis-log="columnRightAxisLog"
+            :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            @trend-formulas="columnFormulas = $event"
           />
+          <div class="chart-controls">
+            <div class="chart-controls-left">
+              <el-switch v-model="columnLogMode" size="small" active-text="对数" />
+              <template v-if="columnLogMode">
+                <el-switch v-model="columnLeftAxisLog" size="small" active-text="左轴" />
+                <el-switch v-model="columnRightAxisLog" size="small" active-text="右轴" />
+              </template>
+            </div>
+            <div class="chart-controls-right">
+              <el-button size="small" @click="columnChartRef?.exportCsv()">
+                <el-icon><Download /></el-icon> 导出CSV
+              </el-button>
+              <el-button size="small" @click="columnChartRef?.saveChart()">
+                <el-icon><Picture /></el-icon> 保存PNG
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <div v-if="columnFormulas.length > 0" style="margin-top: 8px; padding: 12px 16px; background: var(--bg); border-radius: 6px; text-align: center">
+          <div v-for="f in columnFormulas" :key="f.name" style="margin-bottom: 8px; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px">
+            <span style="font-weight: 600; color: var(--text-secondary); white-space: nowrap">{{ f.name }}：</span>
+            <span v-html="renderLatex(f.formula)"></span>
+          </div>
         </div>
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
-          点赞（左轴）| 评论/收藏（右轴）
+          <template v-if="columnHistMode === 'raw'">点赞（左轴）| 评论/收藏（右轴）</template>
+          <template v-else>增量模式：相邻快照差值（不含首日），负值红点标记</template>
         </div>
       </div>
     </template>
@@ -368,16 +500,24 @@ const intervalMinutes = ref(30)
 // 图表 ref
 const upChartRef = ref<InstanceType<typeof LineChart> | null>(null)
 const videoChartRef = ref<InstanceType<typeof LineChart> | null>(null)
+const dynamicChartRef = ref<InstanceType<typeof LineChart> | null>(null)
+const columnChartRef = ref<InstanceType<typeof LineChart> | null>(null)
 
 // 趋势线公式
 const upFormulas = ref<TrendFormula[]>([])
 const videoFormulas = ref<TrendFormula[]>([])
+const dynamicFormulas = ref<TrendFormula[]>([])
+const columnFormulas = ref<TrendFormula[]>([])
 
 // 日期范围筛选
 const upDateRange = ref<[string, string] | null>(null)
 const videoDateRange = ref<[string, string] | null>(null)
+const dynamicDateRange = ref<[string, string] | null>(null)
+const columnDateRange = ref<[string, string] | null>(null)
 const upShowAll = ref(false)
 const videoShowAll = ref(false)
+const dynamicShowAll = ref(false)
+const columnShowAll = ref(false)
 
 // 对数模式
 const upLogMode = ref(false)
@@ -386,6 +526,12 @@ const upRightAxisLog = ref(true)
 const videoLogMode = ref(false)
 const videoLeftAxisLog = ref(true)
 const videoRightAxisLog = ref(true)
+const dynamicLogMode = ref(false)
+const dynamicLeftAxisLog = ref(true)
+const dynamicRightAxisLog = ref(true)
+const columnLogMode = ref(false)
+const columnLeftAxisLog = ref(true)
+const columnRightAxisLog = ref(true)
 
 // UP 曲线标签独立控制
 const upShowPlayLabel = ref(false)
@@ -396,6 +542,16 @@ const upShowCommentLabel = ref(false)
 const videoShowPlayLabel = ref(false)
 const videoShowDanmakuLabel = ref(false)
 const videoShowCommentLabel = ref(false)
+
+// 动态曲线标签独立控制
+const dynamicShowLikeLabel = ref(false)
+const dynamicShowReplyLabel = ref(false)
+const dynamicShowForwardLabel = ref(false)
+
+// 专栏曲线标签独立控制
+const columnShowLikeLabel = ref(false)
+const columnShowReplyLabel = ref(false)
+const columnShowFavoriteLabel = ref(false)
 
 // UP 数据
 const upMetrics = ref<UpMetrics | null>(null)
@@ -606,30 +762,74 @@ const videoHistSeries = computed(() => {
   })
 })
 
-// ── 动态图表 ──
+// ── 动态图表（含 原始值/增量 切换） ──
+const dynamicHistMode = ref<'raw' | 'delta'>('raw')
+
+const filteredDynamicHistory = computed(() => filterByDateRange(dynamicHistory.value, dynamicDateRange.value, dynamicShowAll.value))
+
 const dynamicHistDates = computed(() => {
-  return formatSmartTimestamps(dynamicHistory.value.map(h => h.created_at))
+  const timestamps = filteredDynamicHistory.value.map(h => h.created_at)
+  const sliced = dynamicHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
+  return formatSmartTimestamps(sliced)
 })
 const dynamicHistSeries = computed(() => {
   const colors = ['#409eff', '#e6a23c', '#67c23a']
-  return [
-    { name: '点赞', values: dynamicHistory.value.map(h => h.like_count), color: colors[0], yAxisIndex: 0 },
-    { name: '评论', values: dynamicHistory.value.map(h => h.reply_count), color: colors[1], yAxisIndex: 1 },
-    { name: '转发', values: dynamicHistory.value.map(h => h.forward_count), color: colors[2], yAxisIndex: 1 },
+  const labelSwitches = [dynamicShowLikeLabel, dynamicShowReplyLabel, dynamicShowForwardLabel]
+  const metrics = [
+    { name: '点赞', key: 'like_count' as const, idx: 0 },
+    { name: '评论', key: 'reply_count' as const, idx: 1 },
+    { name: '转发', key: 'forward_count' as const, idx: 2 },
   ]
+  return metrics.map(m => {
+    const raw = filteredDynamicHistory.value.map(h => h[m.key])
+    if (dynamicHistMode.value === 'raw') {
+      return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
+    }
+    return buildDeltaSeries(
+      `${m.name}增量`,
+      filteredDynamicHistory.value.map(h => h.created_at),
+      raw,
+      colors[m.idx],
+      m.idx === 0 ? 0 : 1,
+      intervalMinutes.value,
+      labelSwitches[m.idx].value
+    )
+  })
 })
 
-// ── 专栏图表 ──
+// ── 专栏图表（含 原始值/增量 切换） ──
+const columnHistMode = ref<'raw' | 'delta'>('raw')
+
+const filteredColumnHistory = computed(() => filterByDateRange(columnHistory.value, columnDateRange.value, columnShowAll.value))
+
 const columnHistDates = computed(() => {
-  return formatSmartTimestamps(columnHistory.value.map(h => h.created_at))
+  const timestamps = filteredColumnHistory.value.map(h => h.created_at)
+  const sliced = columnHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
+  return formatSmartTimestamps(sliced)
 })
 const columnHistSeries = computed(() => {
   const colors = ['#409eff', '#e6a23c', '#67c23a']
-  return [
-    { name: '点赞', values: columnHistory.value.map(h => h.like_count), color: colors[0], yAxisIndex: 0 },
-    { name: '评论', values: columnHistory.value.map(h => h.reply_count), color: colors[1], yAxisIndex: 1 },
-    { name: '收藏', values: columnHistory.value.map(h => h.favorite_count), color: colors[2], yAxisIndex: 1 },
+  const labelSwitches = [columnShowLikeLabel, columnShowReplyLabel, columnShowFavoriteLabel]
+  const metrics = [
+    { name: '点赞', key: 'like_count' as const, idx: 0 },
+    { name: '评论', key: 'reply_count' as const, idx: 1 },
+    { name: '收藏', key: 'favorite_count' as const, idx: 2 },
   ]
+  return metrics.map(m => {
+    const raw = filteredColumnHistory.value.map(h => h[m.key])
+    if (columnHistMode.value === 'raw') {
+      return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
+    }
+    return buildDeltaSeries(
+      `${m.name}增量`,
+      filteredColumnHistory.value.map(h => h.created_at),
+      raw,
+      colors[m.idx],
+      m.idx === 0 ? 0 : 1,
+      intervalMinutes.value,
+      labelSwitches[m.idx].value
+    )
+  })
 })
 
 async function loadData() {
