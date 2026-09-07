@@ -1,9 +1,15 @@
 node_modules/
 app/data/
 app/logs/
+app/config/auth.json
+app/config/cookie_config.json
+app/config/settings.json
 *.db
 *.log
 *.gz
 dist/
 .env
 *.local
+*.zip
+.mimocode/
+migrate.cjs
