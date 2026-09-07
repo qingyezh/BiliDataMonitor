@@ -261,9 +261,14 @@ async function changePassword() {
   }
   try {
     await monitorApi.changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword)
-    ElMessage.success('密码已修改')
+    ElMessage.success('密码已修改，请重新登录')
     showPasswordDialog.value = false
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+    // 清除登录状态并跳转登录页
+    await monitorApi.logout().catch(() => {})
+    localStorage.removeItem('api_key')
+    localStorage.removeItem('user_role')
+    window.location.href = '#/login'
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '修改失败')
   }
