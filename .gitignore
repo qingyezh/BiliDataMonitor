@@ -13,3 +13,4 @@ dist/
 *.zip
 .mimocode/
 migrate.cjs
+AGENTS.md
