@@ -276,11 +276,10 @@
     <template v-else-if="type === 'dynamic'">
       <div class="content-card">
         <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
-          <span>📢 {{ dynamicMetrics?.title || `动态 ${target}` }}</span>
+          <span>📢 {{ dynamicMetrics?.title || `动态 ${target}` }} <span v-if="dynamicMetrics?.author_name" style="font-size: 12px; color: var(--text-secondary); font-weight: 400">{{ dynamicMetrics.author_name }}</span></span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
         <div v-if="dynamicMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
-          <div class="stat-card"><div class="label">作者</div><div class="value">{{ dynamicMetrics.author_name || '--' }}</div></div>
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(dynamicMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(dynamicMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">转发</div><div class="value" style="color: #67c23a">{{ formatNum(dynamicMetrics.forward_count) }}</div></div>
@@ -377,11 +376,10 @@
     <template v-else-if="type === 'column'">
       <div class="content-card">
         <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
-          <span>📝 {{ columnMetrics?.title || `专栏 ${target}` }}</span>
+          <span>📝 {{ columnMetrics?.title || `专栏 ${target}` }} <span v-if="columnMetrics?.author_name" style="font-size: 12px; color: var(--text-secondary); font-weight: 400">{{ columnMetrics.author_name }}</span></span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
         <div v-if="columnMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
-          <div class="stat-card"><div class="label">作者</div><div class="value">{{ columnMetrics.author_name || '--' }}</div></div>
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(columnMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(columnMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
