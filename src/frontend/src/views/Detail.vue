@@ -215,6 +215,7 @@
             <el-radio-group v-model="videoHistMode" size="small">
               <el-radio-button value="raw">原始值</el-radio-button>
               <el-radio-button value="delta">增量</el-radio-button>
+              <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
@@ -315,6 +316,7 @@
             <el-radio-group v-model="dynamicHistMode" size="small">
               <el-radio-button value="raw">原始值</el-radio-button>
               <el-radio-button value="delta">增量</el-radio-button>
+              <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
@@ -414,6 +416,7 @@
             <el-radio-group v-model="columnHistMode" size="small">
               <el-radio-button value="raw">原始值</el-radio-button>
               <el-radio-button value="delta">增量</el-radio-button>
+              <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
@@ -609,6 +612,18 @@ const videoCommentDecrease = computed(() => sumDecreases(videoHistory.value, 'co
 const dynamicReplyDecrease = computed(() => sumDecreases(dynamicHistory.value, 'reply_count'))
 const columnReplyDecrease = computed(() => sumDecreases(columnHistory.value, 'reply_count'))
 
+/** 计算评论下降绝对值序列 */
+function buildDecreaseSeries(history: any[], field: string): number[] {
+  if (history.length === 0) return []
+  if (history.length === 1) return [0]
+  const result = [0]
+  for (let i = 1; i < history.length; i++) {
+    const delta = history[i][field] - history[i - 1][field]
+    result.push(delta < 0 ? Math.abs(delta) : 0)
+  }
+  return result
+}
+
 const videoRatio = computed(() => {
   const play = videoRealtime.value?.play ?? videoHistory.value[videoHistory.value.length - 1]?.play ?? 0
   const danmaku = videoRealtime.value?.danmaku ?? videoHistory.value[videoHistory.value.length - 1]?.video_review ?? 0
@@ -760,7 +775,7 @@ const paginatedVideos = computed(() => {
 })
 
 // ── 视频图表（含 原始值/增量 切换） ──
-const videoHistMode = ref<'raw' | 'delta'>('raw')
+const videoHistMode = ref<'raw' | 'delta' | 'decrease'>('raw')
 
 const filteredVideoHistory = computed(() => filterByDateRange(videoHistory.value, videoDateRange.value, videoShowAll.value))
 
@@ -771,6 +786,10 @@ const videoHistDates = computed(() => {
   return formatSmartTimestamps(sliced)
 })
 const videoHistSeries = computed(() => {
+  if (videoHistMode.value === 'decrease') {
+    const decreaseValues = buildDecreaseSeries(filteredVideoHistory.value, 'comment')
+    return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
+  }
   const colors = ['#409eff', '#e6a23c', '#67c23a']
   const labelSwitches = [videoShowPlayLabel, videoShowDanmakuLabel, videoShowCommentLabel]
   const metrics = [
@@ -796,7 +815,7 @@ const videoHistSeries = computed(() => {
 })
 
 // ── 动态图表（含 原始值/增量 切换） ──
-const dynamicHistMode = ref<'raw' | 'delta'>('raw')
+const dynamicHistMode = ref<'raw' | 'delta' | 'decrease'>('raw')
 
 const filteredDynamicHistory = computed(() => filterByDateRange(dynamicHistory.value, dynamicDateRange.value, dynamicShowAll.value))
 
@@ -806,6 +825,10 @@ const dynamicHistDates = computed(() => {
   return formatSmartTimestamps(sliced)
 })
 const dynamicHistSeries = computed(() => {
+  if (dynamicHistMode.value === 'decrease') {
+    const decreaseValues = buildDecreaseSeries(filteredDynamicHistory.value, 'reply_count')
+    return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
+  }
   const colors = ['#409eff', '#e6a23c', '#67c23a']
   const labelSwitches = [dynamicShowLikeLabel, dynamicShowReplyLabel, dynamicShowForwardLabel]
   const metrics = [
@@ -831,7 +854,7 @@ const dynamicHistSeries = computed(() => {
 })
 
 // ── 专栏图表（含 原始值/增量 切换） ──
-const columnHistMode = ref<'raw' | 'delta'>('raw')
+const columnHistMode = ref<'raw' | 'delta' | 'decrease'>('raw')
 
 const filteredColumnHistory = computed(() => filterByDateRange(columnHistory.value, columnDateRange.value, columnShowAll.value))
 
@@ -841,6 +864,10 @@ const columnHistDates = computed(() => {
   return formatSmartTimestamps(sliced)
 })
 const columnHistSeries = computed(() => {
+  if (columnHistMode.value === 'decrease') {
+    const decreaseValues = buildDecreaseSeries(filteredColumnHistory.value, 'reply_count')
+    return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
+  }
   const colors = ['#409eff', '#e6a23c', '#67c23a']
   const labelSwitches = [columnShowLikeLabel, columnShowReplyLabel, columnShowFavoriteLabel]
   const metrics = [
