@@ -167,8 +167,11 @@
           <div class="stat-card"><div class="label">首播→末播</div><div class="value">{{ formatNum(videoMetrics.first_play) }} → {{ formatNum(videoMetrics.last_play) }}</div></div>
           <div class="stat-card"><div class="label">播放:弹幕:评论</div><div class="value">{{ videoRatio }}</div></div>
           <div class="stat-card"><div class="label">首次记录</div><div class="value">{{ formatTimestamp(videoMetrics.first_seen_at) }}</div></div>
-          <div class="stat-card"><div class="label">记录时长</div><div class="value">{{ formatRecordDuration(videoMetrics.first_seen_at) }}</div></div>
-          <div class="stat-card"><div class="label">快照次数</div><div class="value">{{ videoMetrics.sample_count }}</div></div>
+          <div class="stat-card" style="position: relative">
+            <div style="position: absolute; top: 4px; right: 8px; font-size: 11px; color: var(--text-secondary)">{{ videoMetrics.sample_count }}次</div>
+            <div class="label">记录时长</div>
+            <div class="value">{{ formatRecordDuration(videoMetrics.first_seen_at) }}</div>
+          </div>
           <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ videoCommentDecrease }}</div></div>
           <div class="stat-card">
             <div class="label">播放时间分布</div>
