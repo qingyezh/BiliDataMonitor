@@ -169,6 +169,7 @@
           <div class="stat-card"><div class="label">首次记录</div><div class="value">{{ formatTimestamp(videoMetrics.first_seen_at) }}</div></div>
           <div class="stat-card"><div class="label">记录时长</div><div class="value">{{ formatRecordDuration(videoMetrics.first_seen_at) }}</div></div>
           <div class="stat-card"><div class="label">快照次数</div><div class="value">{{ videoMetrics.sample_count }}</div></div>
+          <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ videoCommentDecrease }}</div></div>
           <div class="stat-card">
             <div class="label">播放时间分布</div>
             <div style="display: flex; justify-content: center; gap: 16px">
@@ -282,6 +283,7 @@
           <div class="stat-card"><div class="label">转发</div><div class="value" style="color: #67c23a">{{ formatNum(dynamicMetrics.forward_count) }}</div></div>
           <div class="stat-card"><div class="label">类型</div><div class="value">{{ dynamicTypeName(dynamicMetrics.type) }}</div></div>
           <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(dynamicMetrics.created_time * 1000) }}</div></div>
+          <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ dynamicReplyDecrease }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -381,6 +383,7 @@
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(columnMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
           <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(columnMetrics.created_time * 1000) }}</div></div>
+          <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ columnReplyDecrease }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -590,6 +593,20 @@ const dynamicHistory = ref<any[]>([])
 // 专栏数据
 const columnMetrics = ref<any>(null)
 const columnHistory = ref<any[]>([])
+
+// 评论下降量计算
+function sumDecreases(history: any[], field: string): number {
+  if (history.length < 2) return 0
+  let sum = 0
+  for (let i = 1; i < history.length; i++) {
+    const delta = history[i][field] - history[i - 1][field]
+    if (delta < 0) sum += Math.abs(delta)
+  }
+  return sum
+}
+const videoCommentDecrease = computed(() => sumDecreases(videoHistory.value, 'comment'))
+const dynamicReplyDecrease = computed(() => sumDecreases(dynamicHistory.value, 'reply_count'))
+const columnReplyDecrease = computed(() => sumDecreases(columnHistory.value, 'reply_count'))
 
 const videoRatio = computed(() => {
   const play = videoRealtime.value?.play ?? videoHistory.value[videoHistory.value.length - 1]?.play ?? 0
