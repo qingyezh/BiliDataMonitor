@@ -13,7 +13,7 @@
           <span>🏆 {{ name }}</span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
-        <div v-if="upMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+        <div v-if="upMetrics" class="stat-grid">
           <div class="stat-card"><div class="label">总视频</div><div class="value">{{ upMetrics.total_videos }}</div></div>
           <div class="stat-card"><div class="label">总播放</div><div class="value" style="color: #409eff">{{ formatNum(upMetrics.total_views) }}</div></div>
           <div class="stat-card"><div class="label">总弹幕</div><div class="value" style="color: #e6a23c">{{ formatNum(upMetrics.total_danmaku) }}</div></div>
@@ -163,7 +163,7 @@
           <span>🎬 {{ videoMetrics?.title || target }}</span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
-        <div v-if="videoMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+        <div v-if="videoMetrics" class="stat-grid">
           <div class="stat-card"><div class="label">首播→末播</div><div class="value">{{ formatNum(videoMetrics.first_play) }} → {{ formatNum(videoMetrics.last_play) }}</div></div>
           <div class="stat-card"><div class="label">播放:弹幕:评论</div><div class="value">{{ videoRatio }}</div></div>
           <div class="stat-card"><div class="label">首次记录</div><div class="value">{{ formatTimestamp(videoMetrics.first_seen_at) }}</div></div>
@@ -285,7 +285,7 @@
           <span>📢 {{ dynamicMetrics?.title || `动态 ${target}` }} <span v-if="dynamicMetrics?.author_name" style="font-size: 12px; color: var(--text-secondary); font-weight: 400">{{ dynamicMetrics.author_name }}</span></span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
-        <div v-if="dynamicMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+        <div v-if="dynamicMetrics" class="stat-grid">
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(dynamicMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(dynamicMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">转发</div><div class="value" style="color: #67c23a">{{ formatNum(dynamicMetrics.forward_count) }}</div></div>
@@ -386,7 +386,7 @@
           <span>📝 {{ columnMetrics?.title || `专栏 ${target}` }} <span v-if="columnMetrics?.author_name" style="font-size: 12px; color: var(--text-secondary); font-weight: 400">{{ columnMetrics.author_name }}</span></span>
           <el-button size="small" type="success" :loading="refreshing" @click="refreshNow">立即刷新</el-button>
         </div>
-        <div v-if="columnMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 8px">
+        <div v-if="columnMetrics" class="stat-grid">
           <div class="stat-card"><div class="label">点赞</div><div class="value" style="color: #409eff">{{ formatNum(columnMetrics.like_count) }}</div></div>
           <div class="stat-card"><div class="label">评论</div><div class="value" style="color: #e6a23c">{{ formatNum(columnMetrics.reply_count) }}</div></div>
           <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
@@ -1017,12 +1017,26 @@ onMounted(loadData)
 </script>
 
 <style scoped>
+.stat-grid {
+  display: grid;
+  /* 固定 5 列：第二行子项各占 1 列，与第一行同宽，不拉伸占满 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+@media (max-width: 960px) {
+  .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .stat-card {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 14px;
   text-align: center;
+  min-width: 0;
 }
 .stat-card .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .stat-card .value { font-size: 18px; font-weight: 700; }
