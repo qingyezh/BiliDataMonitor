@@ -108,6 +108,7 @@ export interface VideoHistoryPoint {
   video_review: number
   comment: number
   duration: number
+  page_count: number
   created_at: number
 }
 
@@ -128,7 +129,7 @@ export interface UpAnalysis {
 
 export interface VideoDetail {
   metrics: VideoMetrics | null
-  realtime: { play: number; danmaku: number; reply: number } | null
+  realtime: { play: number; danmaku: number; reply: number; page_count: number } | null
 }
 
 export interface UpVideoPage {

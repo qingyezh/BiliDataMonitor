@@ -30,6 +30,7 @@ export interface BiliVideoInfo {
   bvid: string
   aid: number
   title: string
+  videos: number           // 分P数
   duration: number        // 秒
   desc: string
   pic: string

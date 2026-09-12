@@ -3,9 +3,15 @@ set -e
 
 DOMAIN=${1:-localhost}
 CONF_PATH="/etc/nginx/sites-available/bili-monitor"
+PORT=8123
+if [ -f app/config/settings.json ]; then
+    P=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' app/config/settings.json | head -1)
+    [ -n "$P" ] && PORT="$P"
+fi
 
 echo "配置 nginx 反向代理..."
 echo "域名: $DOMAIN"
+echo "上游端口: $PORT"
 
 sudo tee "$CONF_PATH" > /dev/null <<EOF
 server {
@@ -13,7 +19,7 @@ server {
     server_name $DOMAIN;
 
     location / {
-        proxy_pass http://127.0.0.1:8123;
+        proxy_pass http://127.0.0.1:${PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;

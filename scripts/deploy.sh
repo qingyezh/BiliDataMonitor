@@ -58,6 +58,8 @@ sudo systemctl start bili-monitor.service
 # 6. 配置 nginx
 echo "[6/6] 配置 nginx..."
 DOMAIN=${1:-$(curl -s ifconfig.me)}
+# 仅保留 bilidatamonitor，避免与 bili-monitor 双实例
+sudo systemctl disable --now bili-monitor.service 2>/dev/null || true
 bash scripts/setup-nginx.sh "$DOMAIN"
 
 echo ""

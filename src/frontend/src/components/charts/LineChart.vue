@@ -77,6 +77,8 @@ interface SeriesItem {
   yAxisIndex?: number
   hideInLegend?: boolean
   showLabel?: boolean
+  /** 图例默认隐藏（仍可手动点开） */
+  defaultHidden?: boolean
   formatter?: (v: number) => string
 }
 
@@ -295,7 +297,7 @@ function initChart() {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
   if (isMultiSeries.value) {
-    seriesVisible.value = (props.values as SeriesItem[]).map(() => true)
+    seriesVisible.value = (props.values as SeriesItem[]).map(s => !s.defaultHidden)
     const trendInit: Record<string, boolean> = {}
     for (const item of trendLegendItems.value) {
       trendInit[item.name] = false
@@ -690,6 +692,13 @@ function exportCsv() {
 watch(() => [props.categories, props.values], () => {
   if (!chart && chartRef.value) {
     chart = echarts.init(chartRef.value)
+  }
+  // 系列数量变化时按 defaultHidden 重置可见性（保留同长度时的用户点击状态）
+  if (isMultiSeries.value) {
+    const list = props.values as SeriesItem[]
+    if (seriesVisible.value.length !== list.length) {
+      seriesVisible.value = list.map(s => !s.defaultHidden)
+    }
   }
   updateChart()
 }, { deep: true })

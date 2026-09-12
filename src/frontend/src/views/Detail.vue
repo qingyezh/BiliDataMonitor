@@ -173,6 +173,10 @@
             <div class="value">{{ formatRecordDuration(videoMetrics.first_seen_at) }}</div>
           </div>
           <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ videoCommentDecrease }}</div></div>
+          <div v-if="videoPageCount > 1" class="stat-card">
+            <div class="label">分P数</div>
+            <div class="value" style="color: #9b59b6">{{ videoPageCount }}</div>
+          </div>
           <div class="stat-card">
             <div class="label">播放时间分布</div>
             <div style="display: flex; justify-content: center; gap: 16px">
@@ -225,6 +229,7 @@
                 <el-switch v-model="videoShowPlayLabel" size="small" active-text="播放" />
                 <el-switch v-model="videoShowDanmakuLabel" size="small" active-text="弹幕" />
                 <el-switch v-model="videoShowCommentLabel" size="small" active-text="评论" />
+                <el-switch v-if="videoHasPageSeries" v-model="videoShowPageLabel" size="small" active-text="分P" />
               </div>
             </el-popover>
           </div>
@@ -564,6 +569,7 @@ const upShowCommentLabel = ref(false)
 const videoShowPlayLabel = ref(false)
 const videoShowDanmakuLabel = ref(false)
 const videoShowCommentLabel = ref(false)
+const videoShowPageLabel = ref(false)
 
 // 动态曲线标签独立控制
 const dynamicShowLikeLabel = ref(false)
@@ -587,8 +593,23 @@ const videoSortBy = ref('created')
 
 // 视频数据
 const videoMetrics = ref<VideoMetrics | null>(null)
-const videoRealtime = ref<{ play: number; danmaku: number; reply: number } | null>(null)
+const videoRealtime = ref<{ play: number; danmaku: number; reply: number; page_count: number } | null>(null)
 const videoHistory = ref<VideoHistoryPoint[]>([])
+
+/** 当前分P数：优先 realtime，否则取历史最大值（单P为 1） */
+const videoPageCount = computed(() => {
+  if (videoRealtime.value?.page_count && videoRealtime.value.page_count > 0) {
+    return videoRealtime.value.page_count
+  }
+  const fromHist = videoHistory.value.reduce((m, h) => Math.max(m, h.page_count || 0), 0)
+  return fromHist > 0 ? fromHist : 1
+})
+
+/** 是否存在多分P数据（用于曲线/开关显隐） */
+const videoHasPageSeries = computed(() => {
+  if (videoRealtime.value?.page_count && videoRealtime.value.page_count > 1) return true
+  return videoHistory.value.some(h => (h.page_count || 0) > 1)
+})
 
 // 动态数据
 const dynamicMetrics = ref<any>(null)
@@ -790,19 +811,31 @@ const videoHistSeries = computed(() => {
     const decreaseValues = buildDecreaseSeries(filteredVideoHistory.value, 'comment')
     return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
   }
-  const colors = ['#409eff', '#e6a23c', '#67c23a']
-  const labelSwitches = [videoShowPlayLabel, videoShowDanmakuLabel, videoShowCommentLabel]
+  const colors = ['#409eff', '#e6a23c', '#67c23a', '#9b59b6']
+  const labelSwitches = [videoShowPlayLabel, videoShowDanmakuLabel, videoShowCommentLabel, videoShowPageLabel]
   const metrics = [
     { name: '播放', key: 'play' as const, idx: 0 },
     { name: '弹幕', key: 'video_review' as const, idx: 1 },
     { name: '评论', key: 'comment' as const, idx: 2 },
   ]
+  // 仅多分P视频展示分P曲线，默认隐藏
+  if (videoHasPageSeries.value) {
+    metrics.push({ name: '分P', key: 'page_count' as const, idx: 3 })
+  }
   return metrics.map(m => {
-    const raw = filteredVideoHistory.value.map(h => h[m.key])
+    const raw = filteredVideoHistory.value.map(h => (h[m.key] ?? 0) as number)
+    const defaultHidden = m.key === 'page_count'
     if (videoHistMode.value === 'raw') {
-      return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
+      return {
+        name: m.name,
+        values: raw,
+        color: colors[m.idx],
+        yAxisIndex: m.idx === 0 ? 0 : 1,
+        showLabel: labelSwitches[m.idx].value,
+        defaultHidden,
+      }
     }
-    return buildDeltaSeries(
+    const series = buildDeltaSeries(
       `${m.name}增量`,
       filteredVideoHistory.value.map(h => h.created_at),
       raw,
@@ -811,6 +844,7 @@ const videoHistSeries = computed(() => {
       intervalMinutes.value,
       labelSwitches[m.idx].value
     )
+    return { ...series, defaultHidden }
   })
 })
 

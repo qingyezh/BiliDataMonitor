@@ -8,12 +8,17 @@ export default async function videoRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { bvid: string } }>('/:bvid/detail', async (req, reply) => {
     const metrics = getVideoMetrics(req.params.bvid)
     // 实时数据
-    let realtime: { play: number; danmaku: number; reply: number } | null = null
+    let realtime: { play: number; danmaku: number; reply: number; page_count: number } | null = null
     try {
       const api = new BilibiliAPI(getCookie())
       const info = await api.getVideoInfo(req.params.bvid)
       if (info?.stat) {
-        realtime = { play: info.stat.view, danmaku: info.stat.danmaku, reply: info.stat.reply }
+        realtime = {
+          play: info.stat.view,
+          danmaku: info.stat.danmaku,
+          reply: info.stat.reply,
+          page_count: info.videos || 1,
+        }
       }
     } catch {
       // 实时获取失败不阻塞
@@ -30,4 +35,3 @@ export default async function videoRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: listVideoHistory(req.params.bvid, limit, offset) }
   })
 }
-

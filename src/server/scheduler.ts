@@ -100,6 +100,7 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
           comment: info.stat?.reply || 0,
           duration: info.duration || 0,
           created: info.pubdate || 0,
+          page_count: info.videos || 1,
         }, now)
         markTaskRun(task.id, 'ok', null, now + intervalMs)
         logger.info(`[调度] 视频任务完成: ${task.name}(${task.target}) play=${info.stat?.view}`)

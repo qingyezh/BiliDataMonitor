@@ -212,6 +212,15 @@ function migrate(d: SqliteDB): void {
     d.exec('ALTER TABLE videos ADD COLUMN created INTEGER NOT NULL DEFAULT 0')
   }
 
+  // 迁移：videos / video_history 补充 page_count（分P数，仅单视频任务写入）
+  if (!cols.some(c => c.name === 'page_count')) {
+    d.exec('ALTER TABLE videos ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1')
+  }
+  const vhistCols = d.prepare('PRAGMA table_info(video_history)').all() as { name: string }[]
+  if (!vhistCols.some(c => c.name === 'page_count')) {
+    d.exec('ALTER TABLE video_history ADD COLUMN page_count INTEGER NOT NULL DEFAULT 1')
+  }
+
   // 迁移：monitor_tasks 补充 next_run_at（下次计划触发时间）列
   const tcols = d.prepare('PRAGMA table_info(monitor_tasks)').all() as { name: string }[]
   if (!tcols.some(c => c.name === 'next_run_at')) {
@@ -318,12 +327,13 @@ export interface VideoSnapshotInput {
   comment: number
   duration: number
   created: number   // 视频发布时间戳（秒）
+  page_count?: number // 分P数；仅 video 任务传入，UP 任务不写
 }
 
 /**
  * 写入一批视频快照（UP 任务）：
- * 1. 对比 videos 当前值，四项指标变化 → 插入 video_history
- * 2. upsert videos
+ * 1. 对比 videos 当前值，四项指标变化 → 插入 video_history（page_count 沿用已有值，不采集）
+ * 2. upsert videos（不覆盖 page_count）
  * 3. 重算缓存表（up_metrics/up_daily_stats/up_duration_dist/up_monthly_trend/video_metrics）
  * 整体一个事务
  */
@@ -345,32 +355,34 @@ export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now =
         updated_at = excluded.updated_at
     `)
     const insHist = d.prepare(`
-      INSERT INTO video_history (bvid, play, video_review, comment, duration, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO video_history (bvid, play, video_review, comment, duration, page_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     const selLastHist = d.prepare(
-      'SELECT play, video_review, comment, duration, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
+      'SELECT play, video_review, comment, duration, page_count, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
     )
 
     let changed = 0
     for (const v of inputs) {
       const existing = sel.get(v.bvid) as VideoRow | undefined
+      const pageCount = existing?.page_count ?? 1
       const isChanged = !existing ||
         existing.play !== v.play ||
         existing.video_review !== v.video_review ||
         existing.comment !== v.comment ||
         existing.duration !== v.duration
       if (isChanged) {
-        const lastHist = selLastHist.get(v.bvid) as { play: number; video_review: number; comment: number; duration: number; created_at: number } | undefined
+        const lastHist = selLastHist.get(v.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
         const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
           lastHist.play === v.play && lastHist.video_review === v.video_review &&
           lastHist.comment === v.comment && lastHist.duration === v.duration
         if (!tooClose) {
-          insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, now)
+          insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, pageCount, now)
           changed++
         }
       }
-      upsert.run({ ...v, updated_at: now })
+      const { page_count: _skipPage, ...upsertRow } = v
+      upsert.run({ ...upsertRow, updated_at: now })
     }
 
     recomputeUpCaches(mid, now)
@@ -379,37 +391,41 @@ export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now =
   return tx()
 }
 
-/** 写入单视频快照（video 任务） */
+/** 写入单视频快照（video 任务，含分P数） */
 export function writeVideoSnapshot(input: VideoSnapshotInput, now = Date.now()): { changed: boolean } {
   const d = getDb()
+  const pageCount = Math.max(1, input.page_count ?? 1)
   const tx = d.transaction(() => {
     const existing = d.prepare('SELECT * FROM videos WHERE bvid = ?').get(input.bvid) as VideoRow | undefined
     const isChanged = !existing ||
       existing.play !== input.play ||
       existing.video_review !== input.video_review ||
       existing.comment !== input.comment ||
-      existing.duration !== input.duration
+      existing.duration !== input.duration ||
+      existing.page_count !== pageCount
     if (isChanged) {
       const lastHist = d.prepare(
-        'SELECT play, video_review, comment, duration, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(input.bvid) as { play: number; video_review: number; comment: number; duration: number; created_at: number } | undefined
+        'SELECT play, video_review, comment, duration, page_count, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(input.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
       const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
         lastHist.play === input.play && lastHist.video_review === input.video_review &&
-        lastHist.comment === input.comment && lastHist.duration === input.duration
+        lastHist.comment === input.comment && lastHist.duration === input.duration &&
+        lastHist.page_count === pageCount
       if (!tooClose) {
-        d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, created_at) VALUES (?,?,?,?,?,?)')
-          .run(input.bvid, input.play, input.video_review, input.comment, input.duration, now)
+        d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, page_count, created_at) VALUES (?,?,?,?,?,?,?)')
+          .run(input.bvid, input.play, input.video_review, input.comment, input.duration, pageCount, now)
       }
     }
     d.prepare(`
-      INSERT INTO videos (mid, bvid, title, play, video_review, comment, duration, created, updated_at)
-      VALUES (@mid, @bvid, @title, @play, @video_review, @comment, @duration, @created, @updated_at)
+      INSERT INTO videos (mid, bvid, title, play, video_review, comment, duration, created, page_count, updated_at)
+      VALUES (@mid, @bvid, @title, @play, @video_review, @comment, @duration, @created, @page_count, @updated_at)
       ON CONFLICT(bvid) DO UPDATE SET
         mid = excluded.mid, title = excluded.title, play = excluded.play,
         video_review = excluded.video_review, comment = excluded.comment,
         duration = excluded.duration, created = excluded.created,
+        page_count = excluded.page_count,
         updated_at = excluded.updated_at
-    `).run({ ...input, updated_at: now })
+    `).run({ ...input, page_count: pageCount, updated_at: now })
     recomputeVideoMetrics(input.bvid, now)
     return { changed: isChanged }
   })

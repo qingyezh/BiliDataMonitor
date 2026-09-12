@@ -24,6 +24,7 @@ export interface VideoRow {
   video_review: number
   comment: number
   duration: number
+  page_count: number
   updated_at: number
 }
 
@@ -34,6 +35,7 @@ export interface VideoHistoryRow {
   video_review: number
   comment: number
   duration: number
+  page_count: number
   created_at: number
 }
 
