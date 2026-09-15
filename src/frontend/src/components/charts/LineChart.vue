@@ -106,6 +106,7 @@ const props = withDefaults(defineProps<{
   unequalLog?: boolean
   showTrendLine?: boolean
   trendLineSeries?: number[]
+  showAvgLine?: boolean
 }>(), {
   logMode: false,
   leftAxisLog: false,
@@ -113,6 +114,7 @@ const props = withDefaults(defineProps<{
   unequalLog: true,
   showTrendLine: false,
   trendLineSeries: () => [],
+  showAvgLine: false,
 })
 
 const chartRef = ref<HTMLDivElement>()
@@ -350,6 +352,38 @@ function renderChart() {
     return v
   }
 
+  function computeAverage(values: (number | null)[]): number | null {
+    const valid = values.filter((v): v is number => v !== null && v !== undefined)
+    if (valid.length === 0) return null
+    return valid.reduce((a, b) => a + b, 0) / valid.length
+  }
+
+  function buildAvgMarkLine(avg: number, color: string, axisIdx: number, seriesFormatter?: (v: number) => string) {
+    const fmt = seriesFormatter || props.formatter
+    return {
+      silent: true,
+      symbol: 'none',
+      animation: false,
+      lineStyle: {
+        width: 1.5,
+        type: 'dashed' as const,
+        color,
+        opacity: 0.65,
+      },
+      label: {
+        show: true,
+        position: 'insideEndTop' as const,
+        fontSize: 10,
+        color,
+        formatter: () => {
+          const text = fmt ? fmt(avg) : avg.toLocaleString()
+          return `均值 ${text}`
+        },
+      },
+      data: [{ yAxis: toLogValue(avg, axisIdx) }],
+    }
+  }
+
   function buildLogMarkPoints(originalValues: (number | null)[], yAxisIdx: number, existingMarkPoints?: { coord: [number, number]; value: number }[]): { coord: [number, number]; value: number }[] {
     const points: { coord: [number, number]; value: number }[] = []
     if (existingMarkPoints) points.push(...existingMarkPoints)
@@ -437,55 +471,67 @@ function renderChart() {
       } else {
         base.markPoint = { data: [], tooltip: { show: false } }
       }
+      if (props.showAvgLine) {
+        const avg = computeAverage(s.values)
+        if (avg !== null) {
+          const color = s.color || COLORS[i % COLORS.length]
+          base.markLine = buildAvgMarkLine(avg, color, axisIdx, s.formatter)
+        }
+      }
       return base
     })
   } else {
     const logValues = (props.values as number[]).map(v => toLogValue(v, 0))
-    series = [
-      {
-        name: props.label || '数值',
-        type: 'line',
-        data: logValues,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        lineStyle: { width: 2 },
-        itemStyle: { color: props.color || '#409eff' },
+    const single: any = {
+      name: props.label || '数值',
+      type: 'line',
+      data: logValues,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 6,
+      lineStyle: { width: 2 },
+      itemStyle: { color: props.color || '#409eff' },
+      label: {
+        show: false,
+        position: 'top',
+        color: '#666',
+        fontSize: 10,
+        formatter: (params: any) => {
+          let v = params.value
+          if (useUnequalLog(0) && typeof v === 'number') {
+            v = logInverse(v)
+          }
+          return props.formatter ? props.formatter(v) : undefined
+        },
+      },
+      emphasis: {
         label: {
-          show: false,
-          position: 'top',
-          color: '#666',
-          fontSize: 10,
+          show: true,
+          fontSize: 12,
+          fontWeight: 'bold',
           formatter: (params: any) => {
             let v = params.value
             if (useUnequalLog(0) && typeof v === 'number') {
               v = logInverse(v)
             }
-            return props.formatter ? props.formatter(v) : undefined
+            return props.formatter ? props.formatter(v) : (typeof v === 'number' ? v.toLocaleString() : String(v))
           },
-        },
-        emphasis: {
-          label: {
-            show: true,
-            fontSize: 12,
-            fontWeight: 'bold',
-            formatter: (params: any) => {
-              let v = params.value
-              if (useUnequalLog(0) && typeof v === 'number') {
-                v = logInverse(v)
-              }
-              return props.formatter ? props.formatter(v) : (typeof v === 'number' ? v.toLocaleString() : String(v))
-            },
-          },
-        },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: (props.color || '#409eff') + '30' },
-            { offset: 1, color: (props.color || '#409eff') + '03' },
-          ]),
         },
       },
-    ]
+      areaStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: (props.color || '#409eff') + '30' },
+          { offset: 1, color: (props.color || '#409eff') + '03' },
+        ]),
+      },
+    }
+    if (props.showAvgLine) {
+      const avg = computeAverage(props.values as number[])
+      if (avg !== null) {
+        single.markLine = buildAvgMarkLine(avg, props.color || '#409eff', 0, undefined)
+      }
+    }
+    series = [single]
   }
 
   if (props.showTrendLine && isMultiSeries && (props.values as SeriesItem[]).length > 0) {
@@ -711,6 +757,10 @@ watch([() => props.logMode, () => props.leftAxisLog, () => props.rightAxisLog, (
     chart.dispose()
     chart = echarts.init(chartRef.value!)
   }
+  updateChart()
+})
+
+watch(() => props.showAvgLine, () => {
   updateChart()
 })
 

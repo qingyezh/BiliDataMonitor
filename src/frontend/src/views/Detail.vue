@@ -20,6 +20,9 @@
           <div class="stat-card"><div class="label">总评论</div><div class="value" style="color: #67c23a">{{ formatNum(upMetrics.total_comments) }}</div></div>
           <div class="stat-card"><div class="label">播放:弹幕:评论</div><div class="value">{{ upMetrics.play_danmaku_comment }}</div></div>
           <div class="stat-card"><div class="label">平均播放</div><div class="value">{{ formatNum(upMetrics.avg_play) }}</div></div>
+          <div class="stat-card"><div class="label">24h播放增量{{ upDelta24h.views.label }}</div><div class="value" :style="{ color: upDelta24h.views.color }">{{ upDelta24h.views.text }}</div></div>
+          <div class="stat-card"><div class="label">24h弹幕增量{{ upDelta24h.danmaku.label }}</div><div class="value" :style="{ color: upDelta24h.danmaku.color }">{{ upDelta24h.danmaku.text }}</div></div>
+          <div class="stat-card"><div class="label">24h评论增量{{ upDelta24h.comments.label }}</div><div class="value" :style="{ color: upDelta24h.comments.color }">{{ upDelta24h.comments.text }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -51,6 +54,7 @@
               <el-radio-button value="raw">原始值</el-radio-button>
               <el-radio-button value="delta">增量</el-radio-button>
             </el-radio-group>
+            <el-switch v-model="upShowAvgLine" size="small" active-text="均值" />
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
                 <el-switch size="small" active-text="标签" :model-value="upShowPlayLabel || upShowDanmakuLabel || upShowCommentLabel" />
@@ -74,6 +78,7 @@
             :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            :show-avg-line="upShowAvgLine"
             @trend-formulas="upFormulas = $event"
           />
           <div class="chart-controls">
@@ -190,6 +195,9 @@
               </div>
             </div>
           </div>
+          <div class="stat-card"><div class="label">24h播放增量{{ videoDelta24h.play.label }}</div><div class="value" :style="{ color: videoDelta24h.play.color }">{{ videoDelta24h.play.text }}</div></div>
+          <div class="stat-card"><div class="label">24h弹幕增量{{ videoDelta24h.danmaku.label }}</div><div class="value" :style="{ color: videoDelta24h.danmaku.color }">{{ videoDelta24h.danmaku.text }}</div></div>
+          <div class="stat-card"><div class="label">24h评论增量{{ videoDelta24h.comment.label }}</div><div class="value" :style="{ color: videoDelta24h.comment.color }">{{ videoDelta24h.comment.text }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -221,6 +229,7 @@
               <el-radio-button value="delta">增量</el-radio-button>
               <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
+            <el-switch v-model="videoShowAvgLine" size="small" active-text="均值" />
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
                 <el-switch size="small" active-text="标签" :model-value="videoShowPlayLabel || videoShowDanmakuLabel || videoShowCommentLabel" />
@@ -245,6 +254,7 @@
             :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            :show-avg-line="videoShowAvgLine"
             @trend-formulas="videoFormulas = $event"
           />
           <div class="chart-controls">
@@ -292,6 +302,9 @@
           <div class="stat-card"><div class="label">类型</div><div class="value">{{ dynamicTypeName(dynamicMetrics.type) }}</div></div>
           <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(dynamicMetrics.created_time * 1000) }}</div></div>
           <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ dynamicReplyDecrease }}</div></div>
+          <div class="stat-card"><div class="label">24h点赞增量{{ dynamicDelta24h.like.label }}</div><div class="value" :style="{ color: dynamicDelta24h.like.color }">{{ dynamicDelta24h.like.text }}</div></div>
+          <div class="stat-card"><div class="label">24h评论增量{{ dynamicDelta24h.reply.label }}</div><div class="value" :style="{ color: dynamicDelta24h.reply.color }">{{ dynamicDelta24h.reply.text }}</div></div>
+          <div class="stat-card"><div class="label">24h转发增量{{ dynamicDelta24h.forward.label }}</div><div class="value" :style="{ color: dynamicDelta24h.forward.color }">{{ dynamicDelta24h.forward.text }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -323,6 +336,7 @@
               <el-radio-button value="delta">增量</el-radio-button>
               <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
+            <el-switch v-model="dynamicShowAvgLine" size="small" active-text="均值" />
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
                 <el-switch size="small" active-text="标签" :model-value="dynamicShowLikeLabel || dynamicShowReplyLabel || dynamicShowForwardLabel" />
@@ -346,6 +360,7 @@
             :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            :show-avg-line="dynamicShowAvgLine"
             @trend-formulas="dynamicFormulas = $event"
           />
           <div class="chart-controls">
@@ -392,6 +407,9 @@
           <div class="stat-card"><div class="label">收藏</div><div class="value" style="color: #67c23a">{{ formatNum(columnMetrics.favorite_count) }}</div></div>
           <div class="stat-card"><div class="label">发布时间</div><div class="value">{{ formatTimestamp(columnMetrics.created_time * 1000) }}</div></div>
           <div class="stat-card"><div class="label">评论下降量</div><div class="value" style="color: #f56c6c">{{ columnReplyDecrease }}</div></div>
+          <div class="stat-card"><div class="label">24h点赞增量{{ columnDelta24h.like.label }}</div><div class="value" :style="{ color: columnDelta24h.like.color }">{{ columnDelta24h.like.text }}</div></div>
+          <div class="stat-card"><div class="label">24h评论增量{{ columnDelta24h.reply.label }}</div><div class="value" :style="{ color: columnDelta24h.reply.color }">{{ columnDelta24h.reply.text }}</div></div>
+          <div class="stat-card"><div class="label">24h收藏增量{{ columnDelta24h.favorite.label }}</div><div class="value" :style="{ color: columnDelta24h.favorite.color }">{{ columnDelta24h.favorite.text }}</div></div>
         </div>
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
@@ -423,6 +441,7 @@
               <el-radio-button value="delta">增量</el-radio-button>
               <el-radio-button value="decrease">评论下降</el-radio-button>
             </el-radio-group>
+            <el-switch v-model="columnShowAvgLine" size="small" active-text="均值" />
             <el-popover placement="bottom" :width="200" trigger="click">
               <template #reference>
                 <el-switch size="small" active-text="标签" :model-value="columnShowLikeLabel || columnShowReplyLabel || columnShowFavoriteLabel" />
@@ -446,6 +465,7 @@
             :unequal-log="true"
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
+            :show-avg-line="columnShowAvgLine"
             @trend-formulas="columnFormulas = $event"
           />
           <div class="chart-controls">
@@ -570,6 +590,12 @@ const videoShowPlayLabel = ref(false)
 const videoShowDanmakuLabel = ref(false)
 const videoShowCommentLabel = ref(false)
 const videoShowPageLabel = ref(false)
+
+// 均值线开关（主要服务增量模式，原始值下也可用）
+const upShowAvgLine = ref(false)
+const videoShowAvgLine = ref(false)
+const dynamicShowAvgLine = ref(false)
+const columnShowAvgLine = ref(false)
 
 // 动态曲线标签独立控制
 const dynamicShowLikeLabel = ref(false)
@@ -708,6 +734,78 @@ function filterByDateRange<T extends { created_at: number }>(data: T[], dateRang
 }
 
 const filteredUpHistory = computed(() => filterByDateRange(upHistory.value, upDateRange.value, upShowAll.value))
+
+/** 近24h增量：末点 − 距「末点−24h」最近的快照 */
+function calcDelta24h<T extends { created_at: number }>(
+  history: T[],
+  key: keyof T
+): { delta: number | null; insufficient: boolean } {
+  if (!history || history.length < 2) return { delta: null, insufficient: false }
+  const last = history[history.length - 1]
+  const targetTs = last.created_at - 24 * 60 * 60 * 1000
+  let best = history[0]
+  let bestDiff = Math.abs(best.created_at - targetTs)
+  for (let i = 1; i < history.length - 1; i++) {
+    const diff = Math.abs(history[i].created_at - targetTs)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = history[i]
+    }
+  }
+  const lastVal = Number(last[key] ?? 0)
+  const baseVal = Number(best[key] ?? 0)
+  const span = last.created_at - best.created_at
+  return {
+    delta: lastVal - baseVal,
+    insufficient: span < 24 * 60 * 60 * 1000 * 0.95,
+  }
+}
+
+function formatDelta24h(r: { delta: number | null; insufficient: boolean }): { text: string; color: string; label: string } {
+  if (r.delta === null) return { text: '--', color: 'var(--text-secondary)', label: '' }
+  const color = r.delta > 0 ? '#67c23a' : r.delta < 0 ? '#f56c6c' : 'var(--text-secondary)'
+  return {
+    text: (r.delta > 0 ? '+' : '') + formatNum(r.delta),
+    color,
+    label: r.insufficient ? '（不足24h）' : '',
+  }
+}
+
+const upDelta24h = computed(() => {
+  const h = upHistory.value
+  return {
+    views: formatDelta24h(calcDelta24h(h, 'total_views' as const)),
+    danmaku: formatDelta24h(calcDelta24h(h, 'total_danmaku' as const)),
+    comments: formatDelta24h(calcDelta24h(h, 'total_comments' as const)),
+  }
+})
+
+const videoDelta24h = computed(() => {
+  const h = videoHistory.value
+  return {
+    play: formatDelta24h(calcDelta24h(h, 'play' as const)),
+    danmaku: formatDelta24h(calcDelta24h(h, 'video_review' as const)),
+    comment: formatDelta24h(calcDelta24h(h, 'comment' as const)),
+  }
+})
+
+const dynamicDelta24h = computed(() => {
+  const h = dynamicHistory.value as { created_at: number; like_count: number; reply_count: number; forward_count: number }[]
+  return {
+    like: formatDelta24h(calcDelta24h(h, 'like_count' as const)),
+    reply: formatDelta24h(calcDelta24h(h, 'reply_count' as const)),
+    forward: formatDelta24h(calcDelta24h(h, 'forward_count' as const)),
+  }
+})
+
+const columnDelta24h = computed(() => {
+  const h = columnHistory.value as { created_at: number; like_count: number; reply_count: number; favorite_count: number }[]
+  return {
+    like: formatDelta24h(calcDelta24h(h, 'like_count' as const)),
+    reply: formatDelta24h(calcDelta24h(h, 'reply_count' as const)),
+    favorite: formatDelta24h(calcDelta24h(h, 'favorite_count' as const)),
+  }
+})
 
 const upHistDates = computed(() => {
   const timestamps = filteredUpHistory.value.map(h => h.created_at)
