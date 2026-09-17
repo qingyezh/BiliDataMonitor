@@ -10,7 +10,7 @@
       >
         <div
           v-for="cell in row"
-          :key="cell.s.name"
+          :key="cell.i"
           class="legend-item"
           :data-index="cell.i"
           :class="{ inactive: !seriesVisible[cell.i] }"
@@ -28,8 +28,8 @@
           @click="onTrendLegendClick"
         >
           <div
-            v-for="item in row"
-            :key="item.name"
+            v-for="(item, ii) in row"
+            :key="ri + '-' + ii + '-' + item.name"
             class="legend-item"
             :data-name="item.name"
             :class="{ inactive: !trendVisible[item.name] }"

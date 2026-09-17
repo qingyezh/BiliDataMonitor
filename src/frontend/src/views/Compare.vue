@@ -154,6 +154,18 @@ function shortName(name: string, max = 10): string {
   const n = name || ''
   return n.length > max ? n.slice(0, max - 1) + '…' : n
 }
+/** 短名撞车时附加目标尾缀，保证图例/系列名唯一（避免 Vue key 冲突） */
+function uniqueSeriesName(base: string, used: Set<string>, target: string): string {
+  let n = base
+  if (used.has(n)) n = `${base}·${String(target).slice(-4)}`
+  let k = 2
+  while (used.has(n)) {
+    n = `${base}(${k})`
+    k++
+  }
+  used.add(n)
+  return n
+}
 function filterByRange(pts: CleanPoint[]): CleanPoint[] {
   if (showAll.value || !dateRange.value) return pts
   const start = new Date(dateRange.value[0]).getTime()
@@ -372,6 +384,7 @@ const chartSeries = computed(() => {
   const timesList: number[][] = []
   const valuesList: number[][] = []
   const metaList: { origIdx: number; axis: number; name: string; fullName: string; color: string }[] = []
+  const usedNames = new Set<string>()
 
   list.forEach((t, i) => {
     const field = fieldOf(t)
@@ -387,10 +400,11 @@ const chartSeries = computed(() => {
       vs = applyScale(vs) as number[]
       timesList.push(ts)
       valuesList.push(vs as number[])
+      const shortBase = `${typeLabel(t.type)}·${shortName(t.name || t.target)}`
       metaList.push({
         origIdx: i,
         axis: 0,
-        name: `${typeLabel(t.type)}·${shortName(t.name || t.target)}`,
+        name: uniqueSeriesName(shortBase, usedNames, t.target),
         fullName: `${typeLabel(t.type)}·${t.name || t.target}`,
         color: COLORS[i % COLORS.length],
       })
@@ -406,10 +420,11 @@ const chartSeries = computed(() => {
       }
       timesList.push(ts)
       valuesList.push(vs as number[])
+      const shortBase = `分P·${shortName(t.name || t.target)}`
       metaList.push({
         origIdx: i,
         axis: 2,
-        name: `分P·${shortName(t.name || t.target)}`,
+        name: uniqueSeriesName(shortBase, usedNames, t.target),
         fullName: `分P·${t.name || t.target}`,
         color: COLORS[i % COLORS.length],
       })
