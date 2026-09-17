@@ -100,6 +100,7 @@
       <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
         时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟
         <template v-if="histMode === 'delta'"> · 增量：相邻有效点差值，跨度过大断线</template>
+        <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
       </div>
       <div v-if="formulas.length" style="margin-top: 8px; padding: 10px 14px; background: var(--bg); border-radius: 6px">
         <el-collapse>
@@ -159,6 +160,7 @@ const METRIC_OPTIONS = [
   { value: 'traffic', label: '播放/流量' },
   { value: 'comment', label: '评论/回复' },
   { value: 'danmaku', label: '弹幕' },
+  { value: 'page', label: '分P数' },
   { value: 'like', label: '点赞' },
   { value: 'forward', label: '转发' },
   { value: 'favorite', label: '收藏' },
@@ -175,6 +177,7 @@ const METRIC_FIELD: Record<string, Partial<Record<HistoryKind, string>>> = {
   comment: { up: 'total_comments', video: 'comment', dynamic: 'reply_count', column: 'reply_count' },
   traffic: { up: 'total_views', video: 'play' },
   danmaku: { up: 'total_danmaku', video: 'video_review' },
+  page: { video: 'page_count' },
   like: { dynamic: 'like_count', column: 'like_count' },
   forward: { dynamic: 'forward_count' },
   favorite: { dynamic: 'favorite_count', column: 'favorite_count' },
