@@ -285,13 +285,6 @@
                 <el-switch v-model="videoLeftAxisLog" size="small" active-text="左轴" />
                 <el-switch v-model="videoRightAxisLog" size="small" active-text="右轴" />
               </template>
-              <el-switch
-                v-if="videoHasPageSeries"
-                v-model="videoShowPageSeries"
-                size="small"
-                active-text="分P"
-                title="显示/隐藏分P曲线（第三轴）"
-              />
             </div>
             <div class="chart-controls-right">
               <el-button size="small" :type="inCompare ? 'warning' : 'default'" @click="toggleCompare">
@@ -592,8 +585,8 @@ function dynamicTypeName(type: string): string {
 
 const route = useRoute()
 const router = useRouter()
-const type = route.params.type as string
-const target = route.params.target as string
+const type = ref(route.params.type as string)
+const target = ref(route.params.target as string)
 const loading = ref(false)
 const refreshing = ref(false)
 const inCompare = ref(false)
@@ -655,8 +648,6 @@ const videoShowPlayLabel = ref(false)
 const videoShowDanmakuLabel = ref(false)
 const videoShowCommentLabel = ref(false)
 const videoShowPageLabel = ref(false)
-/** 分P系列显隐（图例同步；默认关，第三轴） */
-const videoShowPageSeries = ref(false)
 
 // 均值线开关（主要服务增量模式，原始值下也可用）
 const upShowAvgLine = ref(false)
@@ -781,7 +772,7 @@ const playTimePercents = computed(() => {
   }
 })
 
-const name = computed(() => upMetrics.value ? `${target}` : target)
+const name = computed(() => upMetrics.value ? `${target.value}` : target.value)
 
 function goVideo(bvid: string) {
   router.push(`/detail/video/${bvid}`)
@@ -802,12 +793,12 @@ function addSelectedVideosToCompare() {
 }
 
 function refreshCompareFlag() {
-  inCompare.value = hasCompareTarget(type as HistoryKind, target)
+  inCompare.value = hasCompareTarget(type.value as HistoryKind, target.value)
 }
 
 function toggleCompare() {
-  const name = (type === 'up' ? upMetrics.value : type === 'video' ? videoMetrics.value?.title : type === 'dynamic' ? dynamicMetrics.value?.title : columnMetrics.value?.title) || target
-  const r = toggleCompareTarget({ type: type as HistoryKind, target, name })
+  const name = (type.value === 'up' ? upMetrics.value : type.value === 'video' ? videoMetrics.value?.title : type.value === 'dynamic' ? dynamicMetrics.value?.title : columnMetrics.value?.title) || target.value
+  const r = toggleCompareTarget({ type: type.value as HistoryKind, target: target.value, name })
   if (!r.ok) {
     ElMessage.warning(`对比最多 ${COMPARE_MAX} 个目标`)
     return
@@ -1077,14 +1068,13 @@ const videoHistSeries = computed(() => {
     { name: '弹幕', key: 'video_review' as const, idx: 1 },
     { name: '评论', key: 'comment' as const, idx: 2 },
   ]
-  // 仅多分P视频展示分P曲线；默认隐藏，单独第三轴（数量级与播放/互动不同）
+  // 仅多分P视频展示分P曲线；默认隐藏，独立第三轴
   if (videoHasPageSeries.value) {
     metrics.push({ name: '分P', key: 'page_count' as const, idx: 3 })
   }
   return metrics.map(m => {
     const raw = videoChartData.value.map(h => (h[m.key] ?? 0) as number)
-    // 分P：开关控制是否默认显示；图例中始终列出（多分P时）
-    const defaultHidden = m.key === 'page_count' ? !videoShowPageSeries.value : false
+    const defaultHidden = m.key === 'page_count'
     const axisIdx = m.key === 'page_count' ? 2 : (m.idx === 0 ? 0 : 1)
     if (videoHistMode.value === 'raw') {
       return {
@@ -1235,10 +1225,10 @@ async function loadData() {
       const m = intervalMinutes.value
       chartGapMinutes.value = m <= 5 ? 5 : m <= 60 ? 60 : m <= 360 ? 360 : 1440
     } catch { /* 保持默认 */ }
-    if (type === 'up') {
+    if (type.value === 'up') {
       const [status, analysis] = await Promise.all([
-        monitorApi.upStatus(target).catch(() => null),
-        monitorApi.upAnalysis(target).catch(() => null),
+        monitorApi.upStatus(target.value).catch(() => null),
+        monitorApi.upAnalysis(target.value).catch(() => null),
       ])
       upMetrics.value = status
       if (analysis) {
@@ -1246,28 +1236,28 @@ async function loadData() {
         durationDist.value = analysis.duration_dist || []
       }
       await loadVideos()
-    } else if (type === 'video') {
+    } else if (type.value === 'video') {
       const [detail, history] = await Promise.all([
-        monitorApi.videoDetail(target).catch(() => null),
-        monitorApi.videoHistory(target).catch(() => [] as VideoHistoryPoint[]),
+        monitorApi.videoDetail(target.value).catch(() => null),
+        monitorApi.videoHistory(target.value).catch(() => [] as VideoHistoryPoint[]),
       ])
       videoMetrics.value = detail?.metrics || null
       videoRealtime.value = detail?.realtime || null
       videoHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['play', 'video_review', 'comment'])
-    } else if (type === 'dynamic') {
+    } else if (type.value === 'dynamic') {
       const [detail, history] = await Promise.all([
-        monitorApi.dynamicDetail(target).catch(() => null),
-        monitorApi.dynamicHistory(target).catch(() => [] as any[]),
+        monitorApi.dynamicDetail(target.value).catch(() => null),
+        monitorApi.dynamicHistory(target.value).catch(() => [] as any[]),
       ])
       dynamicMetrics.value = detail?.metrics || null
       if (detail?.realtime) {
         dynamicMetrics.value = { ...dynamicMetrics.value, ...detail.realtime }
       }
       dynamicHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['like_count', 'reply_count', 'forward_count'])
-    } else if (type === 'column') {
+    } else if (type.value === 'column') {
       const [detail, history] = await Promise.all([
-        monitorApi.columnDetail(target).catch(() => null),
-        monitorApi.columnHistory(target).catch(() => [] as any[]),
+        monitorApi.columnDetail(target.value).catch(() => null),
+        monitorApi.columnHistory(target.value).catch(() => [] as any[]),
       ])
       columnMetrics.value = detail?.metrics || null
       if (detail?.realtime) {
@@ -1281,13 +1271,13 @@ async function loadData() {
 }
 
 async function loadVideos() {
-  const r = await monitorApi.upVideos(target, { page: 1, page_size: 200, sort: videoSortBy.value })
+  const r = await monitorApi.upVideos(target.value, { page: 1, page_size: 200, sort: videoSortBy.value })
   videos.value = r.items || []
   videoTotal.value = r.total || 0
 }
 
 async function refreshNow() {
-  const task = await monitorApi.listTasks().then(ts => ts.find(t => t.target === target && t.task_type === type))
+  const task = await monitorApi.listTasks().then(ts => ts.find(t => t.target === target.value && t.task_type === type.value))
   if (!task) {
     ElMessage.warning('未找到对应任务')
     return
@@ -1304,13 +1294,30 @@ async function refreshNow() {
   }
 }
 
-watch(videoSortBy, () => loadVideos())
+watch(videoSortBy, () => {
+  if (type.value === 'up') loadVideos()
+})
 
-// 路由参数变化（如从 UP 详情跳到视频详情）时重新加载，避免组件复用不刷新
+// 路由参数变化时就地刷新（不再整页 reload，避免打断会话/对比集）
 watch(
-  () => [route.params.type, route.params.target],
-  () => {
-    window.location.reload()
+  () => [route.params.type, route.params.target] as const,
+  async ([nt, ng], [ot, og]) => {
+    if (nt === ot && ng === og) return
+    type.value = nt as string
+    target.value = ng as string
+    upMetrics.value = null
+    upHistory.value = []
+    videoMetrics.value = null
+    videoRealtime.value = null
+    videoHistory.value = []
+    dynamicMetrics.value = null
+    dynamicHistory.value = []
+    columnMetrics.value = null
+    columnHistory.value = []
+    videos.value = []
+    videoTotal.value = 0
+    await loadData()
+    refreshCompareFlag()
   }
 )
 

@@ -437,7 +437,9 @@ function syncUrl() {
     interval: String(chartGapMinutes.value),
     log: logMode.value ? '1' : '0',
   })
-  router.replace(`/compare?${q}`)
+  const next = `#/compare?${q}`
+  if (window.location.hash === next) return
+  router.replace({ path: '/compare', query: Object.fromEntries(new URLSearchParams(q)) })
 }
 
 function exportCsv() {
@@ -460,7 +462,7 @@ function savePng() {
   chartRef.value?.saveChart()
 }
 
-watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes, dateRange, showAll], () => {
+watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes], () => {
   syncUrl()
 })
 
