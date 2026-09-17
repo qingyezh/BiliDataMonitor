@@ -1,8 +1,6 @@
 // BiliDataMonitor 后端入口
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { ensureAppDirs, loadSettings, refreshCookieMask, WEB_DIR } from './config.js'
 import { logger, archiveOldLogs } from './logger.js'
 import { getDb, cleanupOldData } from './database.js'
@@ -16,32 +14,25 @@ import systemRoutes from './routes/system.js'
 import authRoutes from './routes/auth.js'
 import { authMiddleware } from './middleware.js'
 import { loadRoot } from './auth.js'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-async function findAvailablePort(preferred: number): Promise<number> {
-  const { createServer } = await import('node:net')
-  for (let p = preferred; p < preferred + 20; p++) {
-    const ok = await new Promise<boolean>(resolve => {
-      const srv = createServer()
-      srv.once('error', () => resolve(false))
-      srv.once('listening', () => srv.close(() => resolve(true)))
-      srv.listen(p, '0.0.0.0')
-    })
-    if (ok) return p
-  }
-  return preferred
-}
+import { acquireSingleInstanceLock, assertPortAvailable } from './singleInstance.js'
 
 async function main(): Promise<void> {
   ensureAppDirs()
+
+  const lock = acquireSingleInstanceLock()
+  if (!lock.ok) {
+    logger.error(`已有实例运行中（pid=${lock.existingPid}），本次启动中止`)
+    process.exit(1)
+  }
+
   loadRoot()
   archiveOldLogs()
   getDb()
   cleanupOldData(90)
 
   const settings = loadSettings()
-  const port = await findAvailablePort(settings.port)
+  const port = settings.port
+  await assertPortAvailable(port)
 
   const app = Fastify({ logger: false })
 

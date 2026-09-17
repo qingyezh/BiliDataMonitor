@@ -20,7 +20,7 @@ echo "目录: $APP_DIR"
 echo "端口: $PORT"
 echo
 
-echo "[1/2] 清理旧进程与服务..."
+echo "[1/3] 清理旧进程与服务..."
 
 # 停掉可能存在的 systemd 双服务（避免和手工启动抢库）
 if command -v systemctl >/dev/null 2>&1; then
@@ -61,7 +61,13 @@ if pgrep -f "${APP_MARKER}/src/server/dist/index.js" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "[2/2] 启动后端..."
+# 实例守护再扫一遍（锁文件 + 路径匹配）
+if command -v node >/dev/null 2>&1 && [ -f scripts/instance-guard.mjs ]; then
+    echo "[2/3] 运行实例守护..."
+    node scripts/instance-guard.mjs || true
+fi
+
+echo "[3/3] 启动后端..."
 nohup node --experimental-sqlite "$NODE_ENTRY" >> app/logs/manual-start.log 2>&1 &
 NEW_PID=$!
 echo "后端 PID: $NEW_PID"

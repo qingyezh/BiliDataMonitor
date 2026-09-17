@@ -25,4 +25,6 @@ if pgrep -f "${APP_MARKER}/src/server/dist/index.js" >/dev/null 2>&1; then
     pkill -9 -f "${APP_MARKER}/src/server/dist/index.js" 2>/dev/null || true
 fi
 
+rm -f app/data/bili-monitor.lock 2>/dev/null || true
+
 echo "  服务已停止"

@@ -1,5 +1,13 @@
 # 版本记录
 
+## v0.2.0.4 (2026-09-17)
+
+- feat: 单实例防护
+  - 启动获取 `app/data/bili-monitor.lock` PID 锁，已有存活实例则拒绝启动
+  - 端口被占直接失败，不再自动顺延端口（避免双实例共用 SQLite）
+  - 新增 `scripts/instance-guard.mjs`：扫描多余实例并终止（保留锁内 PID）
+  - start.sh / stop.sh 接入守护与锁清理
+
 ## v0.2.0.3 (2026-09-17)
 
 - chore: 隐藏曲线图删除功能常驻文字提示
