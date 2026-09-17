@@ -889,6 +889,16 @@ watch([() => props.showTrendLine, () => props.trendLineSeries, () => props.showA
   updateChart()
 })
 
+// defaultHidden 变化（如分P开关）时同步图例显隐
+watch(
+  () => (isMultiSeries.value ? (props.values as SeriesItem[]).map(s => !!s.defaultHidden).join(',') : ''),
+  () => {
+    if (!isMultiSeries.value) return
+    seriesVisible.value = (props.values as SeriesItem[]).map(s => !s.defaultHidden)
+    updateChart()
+  }
+)
+
 let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
