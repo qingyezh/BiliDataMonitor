@@ -2,25 +2,43 @@
   <div>
     <div ref="chartRef" style="width: 100%; height: 300px"></div>
     <div v-if="isMultiSeries" class="custom-legend">
-      <div class="legend-row" @click="onSeriesLegendClick">
+      <div
+        v-for="(row, ri) in seriesLegendRows"
+        :key="'srow' + ri"
+        class="legend-row"
+        @click="onSeriesLegendClick"
+      >
         <div
-          v-for="(s, i) in (values as SeriesItem[])"
-          :key="s.name"
+          v-for="cell in row"
+          :key="cell.s.name"
           class="legend-item"
-          :data-index="i"
-          :class="{ inactive: !seriesVisible[i] }"
-          :title="s.fullName || s.name"
+          :data-index="cell.i"
+          :class="{ inactive: !seriesVisible[cell.i] }"
+          :title="cell.s.fullName || cell.s.name"
         >
-          <span class="legend-icon" :style="{ background: seriesVisible[i] ? (s.color || COLORS[i % COLORS.length]) : '#ddd' }"></span>
-          <span class="legend-text">{{ s.name }}</span>
+          <span class="legend-icon" :style="{ background: seriesVisible[cell.i] ? (cell.s.color || COLORS[cell.i % COLORS.length]) : '#ddd' }"></span>
+          <span class="legend-text">{{ cell.s.name }}</span>
         </div>
       </div>
-      <div v-if="showTrendLine && trendLineSeries.length > 0" class="legend-row" @click="onTrendLegendClick">
-        <div v-for="(item, i) in trendLegendItems" :key="item.name" class="legend-item" :data-name="item.name" :class="{ inactive: !trendVisible[item.name] }">
-          <span class="legend-icon" :style="{ background: trendVisible[item.name] ? item.color : '#ddd' }"></span>
-          <span class="legend-text">{{ item.name }}</span>
+      <template v-if="showTrendLine && trendLineSeries.length > 0">
+        <div
+          v-for="(row, ri) in trendLegendRows"
+          :key="'trow' + ri"
+          class="legend-row"
+          @click="onTrendLegendClick"
+        >
+          <div
+            v-for="item in row"
+            :key="item.name"
+            class="legend-item"
+            :data-name="item.name"
+            :class="{ inactive: !trendVisible[item.name] }"
+          >
+            <span class="legend-icon" :style="{ background: trendVisible[item.name] ? item.color : '#ddd' }"></span>
+            <span class="legend-text">{{ item.name }}</span>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -35,17 +53,22 @@
 }
 .legend-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  gap: 16px;
+  gap: 4px 12px;
+  max-width: 100%;
   cursor: pointer;
 }
 .legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 4px;
   transition: opacity 0.2s;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 25%;
 }
 .legend-item:hover {
   background: rgba(0, 0, 0, 0.05);
@@ -60,6 +83,8 @@
   font-size: 12px;
   color: #666;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .legend-item.inactive {
   opacity: 0.4;
@@ -163,6 +188,26 @@ const trendLegendItems = computed(() => {
     items.push({ name, color })
   }
   return items
+})
+
+/** 图例每行最多 4 项 */
+const LEGEND_PER_ROW = 4
+const seriesLegendRows = computed(() => {
+  if (!isMultiSeries.value) return [] as { s: SeriesItem; i: number }[][]
+  const list = props.values as SeriesItem[]
+  const rows: { s: SeriesItem; i: number }[][] = []
+  for (let i = 0; i < list.length; i += LEGEND_PER_ROW) {
+    rows.push(list.slice(i, i + LEGEND_PER_ROW).map((s, j) => ({ s, i: i + j })))
+  }
+  return rows
+})
+const trendLegendRows = computed(() => {
+  const list = trendLegendItems.value
+  const rows: { name: string; color: string }[][] = []
+  for (let i = 0; i < list.length; i += LEGEND_PER_ROW) {
+    rows.push(list.slice(i, i + LEGEND_PER_ROW))
+  }
+  return rows
 })
 
 function onSeriesLegendClick(e: Event) {
