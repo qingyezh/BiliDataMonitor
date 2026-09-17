@@ -3,7 +3,14 @@
     <div ref="chartRef" style="width: 100%; height: 300px"></div>
     <div v-if="isMultiSeries" class="custom-legend">
       <div class="legend-row" @click="onSeriesLegendClick">
-        <div v-for="(s, i) in (values as SeriesItem[])" :key="s.name" class="legend-item" :data-index="i" :class="{ inactive: !seriesVisible[i] }">
+        <div
+          v-for="(s, i) in (values as SeriesItem[])"
+          :key="s.name"
+          class="legend-item"
+          :data-index="i"
+          :class="{ inactive: !seriesVisible[i] }"
+          :title="s.fullName || s.name"
+        >
           <span class="legend-icon" :style="{ background: seriesVisible[i] ? (s.color || COLORS[i % COLORS.length]) : '#ddd' }"></span>
           <span class="legend-text">{{ s.name }}</span>
         </div>
@@ -76,6 +83,8 @@ interface SeriesItem {
   realMap?: Record<string, number>
   yAxisIndex?: number
   hideInLegend?: boolean
+  /** 图例悬停显示的完整名称（name 被缩短时使用） */
+  fullName?: string
   showLabel?: boolean
   /** 图例默认隐藏（仍可手动点开） */
   defaultHidden?: boolean

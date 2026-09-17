@@ -1068,7 +1068,7 @@ const videoHistSeries = computed(() => {
     { name: '弹幕', key: 'video_review' as const, idx: 1 },
     { name: '评论', key: 'comment' as const, idx: 2 },
   ]
-  // 仅多分P视频展示分P曲线，默认隐藏
+  // 仅多分P视频展示分P曲线；图例始终列出，默认隐藏（可点开）
   if (videoHasPageSeries.value) {
     metrics.push({ name: '分P', key: 'page_count' as const, idx: 3 })
   }
@@ -1078,6 +1078,7 @@ const videoHistSeries = computed(() => {
     if (videoHistMode.value === 'raw') {
       return {
         name: m.name,
+        fullName: m.name,
         values: raw,
         color: colors[m.idx],
         yAxisIndex: m.idx === 0 ? 0 : 1,
@@ -1085,8 +1086,9 @@ const videoHistSeries = computed(() => {
         defaultHidden,
       }
     }
+    const deltaName = m.key === 'page_count' ? '分P增加量' : `${m.name}增量`
     const series = buildDeltaSeries(
-      `${m.name}增量`,
+      deltaName,
       videoChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
@@ -1094,7 +1096,7 @@ const videoHistSeries = computed(() => {
       chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
-    return { ...series, defaultHidden }
+    return { ...series, fullName: deltaName, defaultHidden }
   })
 })
 

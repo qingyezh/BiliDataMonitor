@@ -382,8 +382,10 @@ const chartSeries = computed(() => {
   const series: { name: string; values: (number | null)[]; color: string; yAxisIndex: number; showLabel: boolean }[] = []
   validIdx.forEach((origIdx, j) => {
     const t = list[origIdx]
+    const full = `${typeLabel(t.type)}·${t.name || t.target}`
     series.push({
       name: `${typeLabel(t.type)}·${shortName(t.name || t.target)}`,
+      fullName: full,
       values: aligned[j] || [],
       color: COLORS[origIdx % COLORS.length],
       yAxisIndex: 0,
