@@ -17,8 +17,8 @@
             <el-radio-button value="index">指数100</el-radio-button>
           </el-radio-group>
           <el-radio-group v-model="timeAxis" size="small">
-            <el-radio-button value="calendar">日历时间</el-radio-button>
-            <el-radio-button value="relative">相对T+0</el-radio-button>
+            <el-radio-button value="calendar">日历</el-radio-button>
+            <el-radio-button value="relative">T+0</el-radio-button>
           </el-radio-group>
           <el-select v-model="chartGapMinutes" size="small" style="width: 72px" title="重采样间隔">
             <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
@@ -26,23 +26,45 @@
           <el-switch v-model="logMode" size="small" active-text="对数" />
           <el-switch v-model="showAvgLine" size="small" active-text="均值" />
           <el-switch v-model="showTrend" size="small" active-text="趋势" />
-          <el-button size="small" @click="reload">刷新全部</el-button>
-          <el-button size="small" @click="exportCsv">导出CSV</el-button>
-          <el-button size="small" @click="savePng">保存PNG</el-button>
+          <el-button size="small" @click="reload">刷新</el-button>
+          <el-button size="small" @click="exportCsv">CSV</el-button>
+          <el-button size="small" @click="savePng">PNG</el-button>
         </div>
       </div>
 
-      <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px">
-        <el-tag
-          v-for="t in targets"
-          :key="t.type + ':' + t.target"
-          closable
-          @close="onRemove(t)"
-        >
-          {{ typeLabel(t.type) }} · {{ t.name || t.target }}
-        </el-tag>
-        <el-button size="small" @click="$router.push('/')">+ 从列表添加</el-button>
-        <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
+      <div class="compare-toolbar2">
+        <div class="date-range">
+          <el-date-picker
+            v-model="dateRange"
+            type="datetimerange"
+            size="small"
+            range-separator="~"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            format="MM/DD HH:mm"
+            style="width: 312px"
+          />
+          <el-button
+            size="small"
+            style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff"
+            @click="showAll = !showAll; if (showAll) dateRange = null"
+          >
+            {{ showAll ? '收起' : '全部' }}
+          </el-button>
+        </div>
+        <div class="target-chips">
+          <el-tag
+            v-for="t in targets"
+            :key="t.type + ':' + t.target"
+            closable
+            @close="onRemove(t)"
+          >
+            {{ typeLabel(t.type) }}·{{ shortName(t.name || t.target) }}
+          </el-tag>
+          <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
+          <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
+        </div>
       </div>
 
       <div v-if="cards.length" class="compare-cards">
@@ -118,13 +140,24 @@ function renderLatex(latex: string): string {
 function typeLabel(t: HistoryKind) {
   return ({ up: 'UP', video: '视频', dynamic: '动态', column: '专栏' } as const)[t] || t
 }
+/** 图例/标签用短名，避免过长 */
+function shortName(name: string, max = 10): string {
+  const n = name || ''
+  return n.length > max ? n.slice(0, max - 1) + '…' : n
+}
+function filterByRange(pts: CleanPoint[]): CleanPoint[] {
+  if (showAll.value || !dateRange.value) return pts
+  const start = new Date(dateRange.value[0]).getTime()
+  const end = new Date(dateRange.value[1]).getTime()
+  return pts.filter(p => p.created_at >= start && p.created_at <= end)
+}
 function tagType(t: HistoryKind) {
   return ({ up: 'primary', video: 'success', dynamic: 'warning', column: 'info' } as const)[t] || 'info'
 }
 
 const METRIC_OPTIONS = [
-  { value: 'comment', label: '评论/回复' },
   { value: 'traffic', label: '播放/流量' },
+  { value: 'comment', label: '评论/回复' },
   { value: 'danmaku', label: '弹幕' },
   { value: 'like', label: '点赞' },
   { value: 'forward', label: '转发' },
@@ -160,11 +193,13 @@ const targets = ref<CompareTarget[]>([])
 const seriesRaw = ref<Record<string, CleanPoint[]>>({})
 const cards = ref<{ key: string; type: HistoryKind; target: string; name: string; summary?: Record<string, string>; delta24h?: string }[]>([])
 
-const metricKey = ref('comment')
+const metricKey = ref('traffic')
 const histMode = ref<'raw' | 'delta'>('raw')
 const scaleMode = ref<'abs' | 'growth' | 'index'>('abs')
 const timeAxis = ref<'calendar' | 'relative'>('calendar')
 const chartGapMinutes = ref(60)
+const dateRange = ref<[string, string] | null>(null)
+const showAll = ref(true)
 const logMode = ref(false)
 const showAvgLine = ref(false)
 const showTrend = ref(false)
@@ -322,10 +357,10 @@ const chartSeries = computed(() => {
   const validIdx: number[] = []
   list.forEach((t, i) => {
     const field = fieldOf(t)
-    const rawPts = seriesRaw.value[seriesKey(t)] || []
-    if (!field || !rawPts.length) return
+    const ranged = filterByRange(seriesRaw.value[seriesKey(t)] || [])
+    if (!field || !ranged.length) return
     // 清洗后按所选间隔重采样，再参与 20s 槽对齐
-    const pts = resampleByInterval(rawPts, chartGapMinutes.value)
+    const pts = resampleByInterval(ranged, chartGapMinutes.value)
     let ts = pts.map(p => p.created_at)
     let vs = pts.map(p => Number(p[field] ?? 0))
     if (histMode.value === 'delta') {
@@ -348,7 +383,7 @@ const chartSeries = computed(() => {
   validIdx.forEach((origIdx, j) => {
     const t = list[origIdx]
     series.push({
-      name: `${typeLabel(t.type)}·${t.name}`,
+      name: `${typeLabel(t.type)}·${shortName(t.name || t.target)}`,
       values: aligned[j] || [],
       color: COLORS[origIdx % COLORS.length],
       yAxisIndex: 0,
@@ -420,7 +455,7 @@ function savePng() {
   chartRef.value?.saveChart()
 }
 
-watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes], () => {
+watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes, dateRange, showAll], () => {
   syncUrl()
 })
 
@@ -447,6 +482,26 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.compare-toolbar2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.date-range {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 .compare-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
