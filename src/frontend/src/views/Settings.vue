@@ -82,6 +82,39 @@
         <el-button v-if="isRoot" size="small" @click="showPasswordDialog = true">修改密码</el-button>
       </div>
     </div>
+    <!-- 近重复历史点清理 -->
+    <div class="content-card" v-if="isRoot">
+      <div class="card-title" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+        <span>🧹 近重复数据点清理</span>
+        <el-button size="small" type="primary" :loading="dupScanning" @click="scanNearDuplicates">扫描</el-button>
+        <span style="font-size: 12px; color: var(--text-secondary)">同一目标相邻点间隔 &lt; 4s（双实例脏数据），两点并列展示，请勾选要删除的一条</span>
+      </div>
+      <el-empty v-if="!dupScanning && !dupPairs.length && dupScanned" description="未发现近重复点" :image-size="60" />
+      <div v-for="(p, i) in dupPairs" :key="i" class="dup-pair">
+        <div class="dup-head">
+          <el-tag size="small">{{ typeLabel(p.kind) }}</el-tag>
+          <span class="dup-target">{{ p.target }}</span>
+          <span class="dup-gap">Δt {{ p.gapMs }}ms</span>
+          <el-button size="small" text type="primary" @click="suggestSelect(p)">按建议勾选较小值</el-button>
+        </div>
+        <el-radio-group v-model="dupSelection[i]" size="small">
+          <el-radio :value="Number(p.a.id)">
+            id={{ p.a.id }} · {{ formatTimestamp(Number(p.a.created_at)) }} ·
+            <span v-for="(v, k) in metricPreview(p.a)" :key="k" style="margin-left: 6px">{{ k }} {{ v }}</span>
+          </el-radio>
+          <el-radio :value="Number(p.b.id)">
+            id={{ p.b.id }} · {{ formatTimestamp(Number(p.b.created_at)) }} ·
+            <span v-for="(v, k) in metricPreview(p.b)" :key="k" style="margin-left: 6px">{{ k }} {{ v }}</span>
+          </el-radio>
+        </el-radio-group>
+      </div>
+      <div v-if="dupPairs.length" style="margin-top: 12px">
+        <el-button type="danger" size="small" :loading="dupDeleting" :disabled="!dupSelection.some(x => x)" @click="deleteSelectedDups">
+          删除选中（{{ dupSelection.filter(x => x).length }}）
+        </el-button>
+      </div>
+    </div>
+
     <!-- 修改密码对话框 -->
     <el-dialog v-model="showPasswordDialog" title="修改密码" width="400px">
       <el-form label-width="80px">
@@ -107,8 +140,8 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
-import { monitorApi, type AppSettings } from '../api/monitor'
-import { formatTimestamp } from '../utils/format'
+import { monitorApi, type AppSettings, type NearDuplicatePair, type HistoryKind } from '../api/monitor'
+import { formatTimestamp, formatNum } from '../utils/format'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -126,6 +159,72 @@ const cookieStatus = ref<{ configured: boolean; masked: string }>({ configured: 
 const cookieEditing = ref(false)
 const cookieInput = ref('')
 const savingCookies = ref(false)
+
+// 近重复清理
+const dupScanning = ref(false)
+const dupScanned = ref(false)
+const dupDeleting = ref(false)
+const dupPairs = ref<NearDuplicatePair[]>([])
+const dupSelection = ref<number[]>([])
+
+function typeLabel(t: HistoryKind) {
+  return ({ up: 'UP', video: '视频', dynamic: '动态', column: '专栏' } as const)[t] || t
+}
+
+function metricPreview(row: Record<string, number | string>) {
+  const keys = ['total_views', 'total_danmaku', 'total_comments', 'play', 'video_review', 'comment', 'like_count', 'reply_count', 'forward_count', 'favorite_count']
+  const out: Record<string, string> = {}
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && k !== 'id' && k !== 'created_at') {
+      out[k] = formatNum(Number(row[k]))
+    }
+  }
+  return out
+}
+
+function suggestSelect(p: NearDuplicatePair) {
+  const i = dupPairs.value.indexOf(p)
+  if (i >= 0) dupSelection.value[i] = p.suggestDropId
+}
+
+async function scanNearDuplicates() {
+  dupScanning.value = true
+  try {
+    dupPairs.value = await monitorApi.nearDuplicates(4000, 200)
+    dupSelection.value = dupPairs.value.map(() => 0)
+    dupScanned.value = true
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '扫描失败')
+  } finally {
+    dupScanning.value = false
+  }
+}
+
+async function deleteSelectedDups() {
+  const picks = dupSelection.value.map((id, i) => (id ? { id, pair: dupPairs.value[i] } : null)).filter(Boolean) as { id: number; pair: NearDuplicatePair }[]
+  if (!picks.length) return
+  try {
+    await ElMessageBox.confirm(
+      `将删除勾选的 ${picks.length} 条历史快照，不可恢复。两点都已展示，请确认删除的是错误数据。`,
+      '删除近重复点',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch {
+    return
+  }
+  dupDeleting.value = true
+  try {
+    for (const p of picks) {
+      await monitorApi.deleteHistoryPoint(p.pair.kind, p.id)
+    }
+    ElMessage.success(`已删除 ${picks.length} 条`)
+    await scanNearDuplicates()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  } finally {
+    dupDeleting.value = false
+  }
+}
 
 async function loadAll() {
   loading.value = true
@@ -274,3 +373,35 @@ async function changePassword() {
   }
 }
 </script>
+
+<style scoped>
+.dup-pair {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--bg);
+}
+.dup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.dup-target {
+  font-weight: 600;
+  word-break: break-all;
+}
+.dup-gap {
+  color: #e6a23c;
+  font-size: 12px;
+}
+.dup-pair :deep(.el-radio) {
+  display: flex;
+  margin-right: 0;
+  margin-bottom: 4px;
+  white-space: normal;
+  height: auto;
+}
+</style>

@@ -8,6 +8,7 @@
         </div>
         <nav>
           <el-button link @click="$router.push('/')">监测列表</el-button>
+          <el-button link @click="$router.push('/compare')">对比</el-button>
           <el-button link @click="$router.push('/settings')">设置</el-button>
         </nav>
       </header>

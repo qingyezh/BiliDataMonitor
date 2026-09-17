@@ -4,7 +4,11 @@
     <div class="content-card">
       <div class="card-title" style="display: flex; justify-content: space-between; align-items: center">
         <span>📋 监测任务</span>
-        <div style="display: flex; gap: 8px">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <el-button size="small" type="primary" plain @click="$router.push('/compare')">打开对比页</el-button>
+          <el-button size="small" :disabled="!selectedTasks.length" @click="addSelectedToCompare">
+            加入对比（{{ selectedTasks.length }}）
+          </el-button>
           <el-button v-if="isRoot" size="small" type="warning" :loading="refreshing" @click="handleRefreshAll">
             <el-icon><Refresh /></el-icon> 立即刷新全部
           </el-button>
@@ -20,7 +24,8 @@
 
     <!-- 任务列表 -->
     <div class="content-card">
-      <el-table :data="tasks" stripe v-loading="loading">
+      <el-table :data="tasks" stripe v-loading="loading" @selection-change="onTaskSelect">
+        <el-table-column type="selection" width="40" align="center" />
         <el-table-column type="index" label="#" width="50" align="center" />
         <el-table-column label="类型" width="90" align="center">
           <template #default="{ row }">
@@ -120,10 +125,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { monitorApi, type MonitorTask, type AppSettings } from '../api/monitor'
+import { monitorApi, type MonitorTask, type AppSettings, type HistoryKind } from '../api/monitor'
 import { formatNum, formatTimestamp, statusLabel } from '../utils/format'
+import { toggleCompareTarget, COMPARE_MAX } from '../utils/compareStore'
 
 const tasks = ref<MonitorTask[]>([])
+const selectedTasks = ref<MonitorTask[]>([])
 const settings = ref<AppSettings>({ port: 8123, interval_minutes: 30, default_max_videos: 10, cookie_mask: '', open_browser: true })
 const loading = ref(false)
 const refreshing = ref(false)
@@ -148,6 +155,23 @@ async function loadSettings() {
   try {
     settings.value = await monitorApi.settings()
   } catch { /* ignore */ }
+}
+
+function onTaskSelect(rows: MonitorTask[]) {
+  selectedTasks.value = rows
+}
+
+function addSelectedToCompare() {
+  let added = 0
+  for (const row of selectedTasks.value) {
+    const r = toggleCompareTarget({
+      type: row.task_type as HistoryKind,
+      target: row.target,
+      name: row.name || row.target,
+    })
+    if (r.ok && r.added) added++
+  }
+  ElMessage.success(added ? `已加入 ${added} 个到对比（上限 ${COMPARE_MAX}）` : '未新增（可能已在对比中或已满）')
 }
 
 async function handleCreate() {

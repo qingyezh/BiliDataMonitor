@@ -115,6 +115,22 @@ export interface VideoHistoryPoint {
 
 export type HistoryKind = 'up' | 'video' | 'dynamic' | 'column'
 
+export interface NearDuplicatePair {
+  kind: HistoryKind
+  target: string
+  gapMs: number
+  a: Record<string, number | string>
+  b: Record<string, number | string>
+  suggestKeepId: number
+  suggestDropId: number
+}
+
+export interface CompareTarget {
+  type: HistoryKind
+  target: string
+  name: string
+}
+
 export interface AppSettings {
   port: number
   interval_minutes: number
@@ -199,6 +215,9 @@ export const monitorApi = {
   // 删除单条历史快照（异常数据点）
   deleteHistoryPoint: (kind: HistoryKind, id: number) =>
     api.delete(`/monitor/history/${kind}/${id}`).then(r => unwrap<{ deleted: boolean; target?: string }>(r)),
+  // 近重复历史点扫描
+  nearDuplicates: (maxGapMs = 4000, limit = 200) =>
+    api.get('/monitor/near-duplicates', { params: { max_gap_ms: maxGapMs, limit } }).then(r => unwrap<NearDuplicatePair[]>(r)),
 
   // 认证
   login: (username: string, password: string) => api.post('/auth/login', { username, password }).then(r => unwrap<{ role: string; apiKey: string }>(r)),

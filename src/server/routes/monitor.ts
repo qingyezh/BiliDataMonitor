@@ -1,6 +1,6 @@
 // 任务 CRUD + 刷新路由
 import type { FastifyInstance } from 'fastify'
-import { createTask, deleteTask, listTasks, getTaskByTarget, updateTask, deleteHistoryPoint, type HistoryKind } from '../database.js'
+import { createTask, deleteTask, listTasks, getTaskByTarget, updateTask, deleteHistoryPoint, findNearDuplicateHistory, type HistoryKind } from '../database.js'
 import { refreshTaskNow, refreshAllNow } from '../scheduler.js'
 import { BilibiliAPI } from '../crawler/bilibili.js'
 import { getCookie, loadSettings } from '../config.js'
@@ -97,6 +97,13 @@ export default async function monitorRoutes(app: FastifyInstance): Promise<void>
     } catch (e) {
       return { success: false, message: (e as Error).message }
     }
+  })
+
+  // 近重复历史点扫描（双实例脏数据，间隔默认 <4s）
+  app.get<{ Querystring: { max_gap_ms?: string; limit?: string } }>('/near-duplicates', { preHandler: [requireRoot] }, async (req) => {
+    const maxGap = Math.min(60000, Math.max(100, Number(req.query.max_gap_ms) || 4000))
+    const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 200))
+    return { success: true, data: findNearDuplicateHistory(maxGap, limit) }
   })
 
   // 删除单条历史快照（异常数据点）

@@ -723,6 +723,58 @@ export function listUpHistory(mid: string): { id: number; created_at: number; to
 
 export type HistoryKind = 'up' | 'video' | 'dynamic' | 'column'
 
+export interface NearDuplicatePair {
+  kind: HistoryKind
+  target: string
+  gapMs: number
+  a: Record<string, number | string>
+  b: Record<string, number | string>
+  /** 建议保留（累计指标更大的一侧） */
+  suggestKeepId: number
+  suggestDropId: number
+}
+
+/** 扫描同一目标相邻历史点间隔 < maxGapMs 的近重复（双实例脏数据） */
+export function findNearDuplicateHistory(maxGapMs = 4000, limit = 200): NearDuplicatePair[] {
+  const d = getDb()
+  const specs: { kind: HistoryKind; table: string; key: string; metrics: string[] }[] = [
+    { kind: 'up', table: 'up_history', key: 'mid', metrics: ['total_views', 'total_danmaku', 'total_comments', 'total_videos'] },
+    { kind: 'video', table: 'video_history', key: 'bvid', metrics: ['play', 'video_review', 'comment', 'page_count'] },
+    { kind: 'dynamic', table: 'dynamic_history', key: 'dynamic_id', metrics: ['like_count', 'reply_count', 'forward_count'] },
+    { kind: 'column', table: 'column_history', key: 'cvid', metrics: ['like_count', 'reply_count', 'favorite_count'] },
+  ]
+  const result: NearDuplicatePair[] = []
+  for (const spec of specs) {
+    const cols = ['id', 'created_at', spec.key, ...spec.metrics].join(', ')
+    const rows = d.prepare(`SELECT ${cols} FROM ${spec.table} ORDER BY ${spec.key} ASC, created_at ASC`).all() as Record<string, number | string>[]
+    for (let i = 1; i < rows.length && result.length < limit; i++) {
+      const prev = rows[i - 1]
+      const cur = rows[i]
+      if (String(prev[spec.key]) !== String(cur[spec.key])) continue
+      const gap = Number(cur.created_at) - Number(prev.created_at)
+      if (gap < 0 || gap >= maxGapMs) continue
+      // 累计指标取 max 侧为建议保留
+      let sumPrev = 0
+      let sumCur = 0
+      for (const m of spec.metrics) {
+        sumPrev += Number(prev[m] || 0)
+        sumCur += Number(cur[m] || 0)
+      }
+      const keepCur = sumCur >= sumPrev
+      result.push({
+        kind: spec.kind,
+        target: String(cur[spec.key]),
+        gapMs: gap,
+        a: prev,
+        b: cur,
+        suggestKeepId: Number(keepCur ? cur.id : prev.id),
+        suggestDropId: Number(keepCur ? prev.id : cur.id),
+      })
+    }
+  }
+  return result
+}
+
 /** 删除单条历史快照（按历史表 id），并按需重算派生缓存 */
 export function deleteHistoryPoint(kind: HistoryKind, id: number): { deleted: boolean; target?: string } {
   const d = getDb()

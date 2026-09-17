@@ -96,6 +96,9 @@
               </template>
             </div>
             <div class="chart-controls-right">
+              <el-button size="small" :type="inCompare ? 'warning' : 'default'" @click="toggleCompare">
+                {{ inCompare ? '移出对比' : '加入对比' }}
+              </el-button>
               <el-button size="small" @click="upChartRef?.exportCsv()">
                 <el-icon><Download /></el-icon> 导出CSV
               </el-button>
@@ -127,14 +130,20 @@
       <div class="content-card">
         <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
           <span>🎬 视频排行</span>
-          <el-radio-group v-model="videoSortBy" size="small" @change="videoPage = 1">
-            <el-radio-button value="play">按播放量</el-radio-button>
-            <el-radio-button value="created">按发布时间</el-radio-button>
-            <el-radio-button value="comment">按评论数</el-radio-button>
-            <el-radio-button value="video_review">按弹幕数</el-radio-button>
-          </el-radio-group>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <el-button size="small" :disabled="!selectedVideos.length" @click="addSelectedVideosToCompare">
+              加入对比（{{ selectedVideos.length }}）
+            </el-button>
+            <el-radio-group v-model="videoSortBy" size="small" @change="videoPage = 1">
+              <el-radio-button value="play">按播放量</el-radio-button>
+              <el-radio-button value="created">按发布时间</el-radio-button>
+              <el-radio-button value="comment">按评论数</el-radio-button>
+              <el-radio-button value="video_review">按弹幕数</el-radio-button>
+            </el-radio-group>
+          </div>
         </div>
-        <el-table :data="paginatedVideos" stripe size="small">
+        <el-table :data="paginatedVideos" stripe size="small" @selection-change="onVideoSelect">
+          <el-table-column type="selection" width="40" align="center" />
           <el-table-column type="index" label="#" width="50" align="center" :index="(i: number) => (videoPage - 1) * videoPageSize + i + 1" />
           <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip>
             <template #default="{ row }">
@@ -278,6 +287,9 @@
               </template>
             </div>
             <div class="chart-controls-right">
+              <el-button size="small" :type="inCompare ? 'warning' : 'default'" @click="toggleCompare">
+                {{ inCompare ? '移出对比' : '加入对比' }}
+              </el-button>
               <el-button size="small" @click="videoChartRef?.exportCsv()">
                 <el-icon><Download /></el-icon> 导出CSV
               </el-button>
@@ -391,6 +403,9 @@
               </template>
             </div>
             <div class="chart-controls-right">
+              <el-button size="small" :type="inCompare ? 'warning' : 'default'" @click="toggleCompare">
+                {{ inCompare ? '移出对比' : '加入对比' }}
+              </el-button>
               <el-button size="small" @click="dynamicChartRef?.exportCsv()">
                 <el-icon><Download /></el-icon> 导出CSV
               </el-button>
@@ -503,6 +518,9 @@
               </template>
             </div>
             <div class="chart-controls-right">
+              <el-button size="small" :type="inCompare ? 'warning' : 'default'" @click="toggleCompare">
+                {{ inCompare ? '移出对比' : '加入对比' }}
+              </el-button>
               <el-button size="small" @click="columnChartRef?.exportCsv()">
                 <el-icon><Download /></el-icon> 导出CSV
               </el-button>
@@ -538,6 +556,8 @@ import type { TrendFormula, DeletePointPayload } from '../components/charts/Line
 import BarChart from '../components/charts/BarChart.vue'
 import { monitorApi, type UpMetrics, type UpDurationDist, type VideoMetrics, type VideoHistoryPoint, type HistoryKind } from '../api/monitor'
 import { formatNum, formatTimestamp, formatDuration, formatSmartTimestamps, formatRecordDuration } from '../utils/format'
+import { dedupeNearDuplicates, DUPLICATE_MERGE_MS } from '../utils/historyClean'
+import { toggleCompareTarget, hasCompareTarget, COMPARE_MAX } from '../utils/compareStore'
 import katex from 'katex'
 
 function renderLatex(latex: string): string {
@@ -569,6 +589,7 @@ const type = route.params.type as string
 const target = route.params.target as string
 const loading = ref(false)
 const refreshing = ref(false)
+const inCompare = ref(false)
 const intervalMinutes = ref(30)
 /** 图表相邻点期望间隔（分钟），用于增量模式跨度过大断线 */
 const chartGapMinutes = ref(60)
@@ -755,6 +776,35 @@ const name = computed(() => upMetrics.value ? `${target}` : target)
 
 function goVideo(bvid: string) {
   router.push(`/detail/video/${bvid}`)
+}
+
+const selectedVideos = ref<any[]>([])
+function onVideoSelect(rows: any[]) {
+  selectedVideos.value = rows
+}
+function addSelectedVideosToCompare() {
+  let added = 0
+  for (const row of selectedVideos.value) {
+    if (!row?.bvid) continue
+    const r = toggleCompareTarget({ type: 'video', target: row.bvid, name: row.title || row.bvid })
+    if (r.ok && r.added) added++
+  }
+  ElMessage.success(added ? `已加入 ${added} 个视频到对比` : '未新增（可能已满 6 个或已在对比中）')
+}
+
+function refreshCompareFlag() {
+  inCompare.value = hasCompareTarget(type as HistoryKind, target)
+}
+
+function toggleCompare() {
+  const name = (type === 'up' ? upMetrics.value : type === 'video' ? videoMetrics.value?.title : type === 'dynamic' ? dynamicMetrics.value?.title : columnMetrics.value?.title) || target
+  const r = toggleCompareTarget({ type: type as HistoryKind, target, name })
+  if (!r.ok) {
+    ElMessage.warning(`对比最多 ${COMPARE_MAX} 个目标`)
+    return
+  }
+  inCompare.value = r.added
+  ElMessage.success(r.added ? '已加入对比' : '已移出对比')
 }
 
 function getChartRef(kind: HistoryKind) {
@@ -1179,7 +1229,7 @@ async function loadData() {
       ])
       upMetrics.value = status
       if (analysis) {
-        upHistory.value = analysis.history || []
+        upHistory.value = dedupeNearDuplicates((analysis.history || []) as any[], DUPLICATE_MERGE_MS, ['total_views', 'total_danmaku', 'total_comments', 'total_videos'])
         durationDist.value = analysis.duration_dist || []
       }
       await loadVideos()
@@ -1190,7 +1240,7 @@ async function loadData() {
       ])
       videoMetrics.value = detail?.metrics || null
       videoRealtime.value = detail?.realtime || null
-      videoHistory.value = history
+      videoHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['play', 'video_review', 'comment'])
     } else if (type === 'dynamic') {
       const [detail, history] = await Promise.all([
         monitorApi.dynamicDetail(target).catch(() => null),
@@ -1200,7 +1250,7 @@ async function loadData() {
       if (detail?.realtime) {
         dynamicMetrics.value = { ...dynamicMetrics.value, ...detail.realtime }
       }
-      dynamicHistory.value = history
+      dynamicHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['like_count', 'reply_count', 'forward_count'])
     } else if (type === 'column') {
       const [detail, history] = await Promise.all([
         monitorApi.columnDetail(target).catch(() => null),
@@ -1210,7 +1260,7 @@ async function loadData() {
       if (detail?.realtime) {
         columnMetrics.value = { ...columnMetrics.value, ...detail.realtime }
       }
-      columnHistory.value = history
+      columnHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['like_count', 'reply_count', 'favorite_count'])
     }
   } finally {
     loading.value = false
@@ -1251,7 +1301,10 @@ watch(
   }
 )
 
-onMounted(loadData)
+onMounted(async () => {
+  await loadData()
+  refreshCompareFlag()
+})
 </script>
 
 <style scoped>

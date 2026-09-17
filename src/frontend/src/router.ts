@@ -8,6 +8,7 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('./views/Login.vue') },
     { path: '/', name: 'list', component: MonitorList },
     { path: '/detail/:type/:target', name: 'detail', component: () => import('./views/Detail.vue') },
+    { path: '/compare', name: 'compare', component: () => import('./views/Compare.vue') },
     { path: '/settings', name: 'settings', component: () => import('./views/Settings.vue') },
     { path: '/users', name: 'users', component: () => import('./views/UserManage.vue'), meta: { requireRoot: true } },
   ],
