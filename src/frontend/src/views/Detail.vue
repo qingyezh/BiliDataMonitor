@@ -111,7 +111,6 @@
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
           <template v-if="upHistMode === 'raw'">左轴：总播放 | 右轴：总弹幕/总评论（每次更新记录一条）</template>
           <template v-else>增量模式：相邻更新差值（不含首条），负值红点标记</template>
-          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
 
@@ -292,7 +291,6 @@
           <template v-if="videoHistMode === 'raw'">播放（左轴）| 弹幕/评论（右轴）</template>
           <template v-else-if="videoHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
           <template v-else>评论下降：相邻快照评论减少量</template>
-          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>
@@ -403,7 +401,6 @@
           <template v-if="dynamicHistMode === 'raw'">点赞（左轴）| 评论/转发（右轴）</template>
           <template v-else-if="dynamicHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
           <template v-else>评论下降：相邻快照评论减少量</template>
-          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>
@@ -513,7 +510,6 @@
           <template v-if="columnHistMode === 'raw'">点赞（左轴）| 评论/收藏（右轴）</template>
           <template v-else-if="columnHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
           <template v-else>评论下降：相邻快照评论减少量</template>
-          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>

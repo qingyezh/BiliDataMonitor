@@ -1,10 +1,6 @@
 <template>
   <div>
     <div ref="chartRef" style="width: 100%; height: 300px"></div>
-    <div v-if="enableDelete" class="delete-hint">
-      悬停数据点后按 <kbd>L</kbd> 锁定并删除该快照
-      <span v-if="lockedIndex != null" class="locked-tip">已锁定 · 等待确认</span>
-    </div>
     <div v-if="isMultiSeries" class="custom-legend">
       <div class="legend-row" @click="onSeriesLegendClick">
         <div v-for="(s, i) in (values as SeriesItem[])" :key="s.name" class="legend-item" :data-index="i" :class="{ inactive: !seriesVisible[i] }">
@@ -63,28 +59,6 @@
 }
 .legend-item.inactive .legend-icon {
   background: #ddd !important;
-}
-.delete-hint {
-  text-align: center;
-  font-size: 12px;
-  color: #909399;
-  margin-top: 2px;
-}
-.delete-hint kbd {
-  display: inline-block;
-  padding: 0 5px;
-  border: 1px solid #dcdfe6;
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  background: #f5f7fa;
-  font-family: inherit;
-  font-size: 11px;
-  color: #606266;
-}
-.delete-hint .locked-tip {
-  margin-left: 8px;
-  color: #f56c6c;
-  font-weight: 600;
 }
 </style>
 
