@@ -87,6 +87,23 @@
       <div class="card-title" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
         <span>🧹 近重复数据点清理</span>
         <el-button size="small" type="primary" :loading="dupScanning" @click="scanNearDuplicates">扫描</el-button>
+        <el-button
+          v-if="dupPairs.length"
+          size="small"
+          plain
+          type="warning"
+          @click="selectAllSuggested"
+        >
+          按推荐全选（{{ dupPairs.length }}）
+        </el-button>
+        <el-button
+          v-if="dupSelection.some(x => x)"
+          size="small"
+          plain
+          @click="clearDupSelection"
+        >
+          清空选择
+        </el-button>
         <span style="font-size: 12px; color: var(--text-secondary)">同一目标相邻点间隔 &lt; 4s（双实例脏数据），两点并列展示，请勾选要删除的一条</span>
       </div>
       <el-empty v-if="!dupScanning && !dupPairs.length && dupScanned" description="未发现近重复点" :image-size="60" />
@@ -185,6 +202,16 @@ function metricPreview(row: Record<string, number | string>) {
 function suggestSelect(p: NearDuplicatePair) {
   const i = dupPairs.value.indexOf(p)
   if (i >= 0) dupSelection.value[i] = p.suggestDropId
+}
+
+/** 自动勾选全部推荐删除（累计指标较小的一侧） */
+function selectAllSuggested() {
+  dupSelection.value = dupPairs.value.map(p => Number(p.suggestDropId) || 0)
+  ElMessage.success(`已按推荐勾选 ${dupSelection.value.filter(x => x).length} 条`)
+}
+
+function clearDupSelection() {
+  dupSelection.value = dupPairs.value.map(() => 0)
 }
 
 async function scanNearDuplicates() {
