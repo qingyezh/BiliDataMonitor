@@ -322,8 +322,10 @@ const chartSeries = computed(() => {
   const validIdx: number[] = []
   list.forEach((t, i) => {
     const field = fieldOf(t)
-    const pts = seriesRaw.value[seriesKey(t)] || []
-    if (!field || !pts.length) return
+    const rawPts = seriesRaw.value[seriesKey(t)] || []
+    if (!field || !rawPts.length) return
+    // 清洗后按所选间隔重采样，再参与 20s 槽对齐
+    const pts = resampleByInterval(rawPts, chartGapMinutes.value)
     let ts = pts.map(p => p.created_at)
     let vs = pts.map(p => Number(p[field] ?? 0))
     if (histMode.value === 'delta') {
