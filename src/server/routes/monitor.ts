@@ -1,6 +1,6 @@
 // 任务 CRUD + 刷新路由
 import type { FastifyInstance } from 'fastify'
-import { createTask, deleteTask, listTasks, getTaskByTarget, updateTask } from '../database.js'
+import { createTask, deleteTask, listTasks, getTaskByTarget, updateTask, deleteHistoryPoint, type HistoryKind } from '../database.js'
 import { refreshTaskNow, refreshAllNow } from '../scheduler.js'
 import { BilibiliAPI } from '../crawler/bilibili.js'
 import { getCookie, loadSettings } from '../config.js'
@@ -97,6 +97,23 @@ export default async function monitorRoutes(app: FastifyInstance): Promise<void>
     } catch (e) {
       return { success: false, message: (e as Error).message }
     }
+  })
+
+  // 删除单条历史快照（异常数据点）
+  app.delete<{ Params: { kind: string; id: string } }>('/history/:kind/:id', { preHandler: [requireRoot] }, async (req, reply) => {
+    const kind = req.params.kind
+    const id = Number(req.params.id)
+    if (!['up', 'video', 'dynamic', 'column'].includes(kind)) {
+      return reply.code(400).send({ success: false, message: 'kind 必须是 up、video、dynamic 或 column' })
+    }
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ success: false, message: 'id 无效' })
+    }
+    const result = deleteHistoryPoint(kind as HistoryKind, id)
+    if (!result.deleted) {
+      return reply.code(404).send({ success: false, message: '数据点不存在' })
+    }
+    return { success: true, data: result }
   })
 }
 

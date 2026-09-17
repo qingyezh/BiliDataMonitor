@@ -79,7 +79,10 @@
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
             :show-avg-line="upShowAvgLine"
+            :enable-delete="true"
+            :point-ids="upPointIds"
             @trend-formulas="upFormulas = $event"
+            @delete-point="onDeleteHistoryPoint('up', $event)"
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
@@ -108,6 +111,7 @@
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
           <template v-if="upHistMode === 'raw'">左轴：总播放 | 右轴：总弹幕/总评论（每次更新记录一条）</template>
           <template v-else>增量模式：相邻更新差值（不含首条），负值红点标记</template>
+          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
 
@@ -255,7 +259,10 @@
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
             :show-avg-line="videoShowAvgLine"
+            :enable-delete="true"
+            :point-ids="videoPointIds"
             @trend-formulas="videoFormulas = $event"
+            @delete-point="onDeleteHistoryPoint('video', $event)"
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
@@ -283,7 +290,9 @@
         </div>
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
           <template v-if="videoHistMode === 'raw'">播放（左轴）| 弹幕/评论（右轴）</template>
-          <template v-else>增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else-if="videoHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else>评论下降：相邻快照评论减少量</template>
+          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>
@@ -361,7 +370,10 @@
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
             :show-avg-line="dynamicShowAvgLine"
+            :enable-delete="true"
+            :point-ids="dynamicPointIds"
             @trend-formulas="dynamicFormulas = $event"
+            @delete-point="onDeleteHistoryPoint('dynamic', $event)"
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
@@ -389,7 +401,9 @@
         </div>
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
           <template v-if="dynamicHistMode === 'raw'">点赞（左轴）| 评论/转发（右轴）</template>
-          <template v-else>增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else-if="dynamicHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else>评论下降：相邻快照评论减少量</template>
+          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>
@@ -466,7 +480,10 @@
             :show-trend-line="true"
             :trend-line-series="[0, 1, 2]"
             :show-avg-line="columnShowAvgLine"
+            :enable-delete="true"
+            :point-ids="columnPointIds"
             @trend-formulas="columnFormulas = $event"
+            @delete-point="onDeleteHistoryPoint('column', $event)"
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
@@ -494,7 +511,9 @@
         </div>
         <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
           <template v-if="columnHistMode === 'raw'">点赞（左轴）| 评论/收藏（右轴）</template>
-          <template v-else>增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else-if="columnHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
+          <template v-else>评论下降：相邻快照评论减少量</template>
+          ｜ 悬停数据点后按 <b>L</b> 可删除异常快照
         </div>
       </div>
     </template>
@@ -504,12 +523,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Download, Picture } from '@element-plus/icons-vue'
 import LineChart from '../components/charts/LineChart.vue'
-import type { TrendFormula } from '../components/charts/LineChart.vue'
+import type { TrendFormula, DeletePointPayload } from '../components/charts/LineChart.vue'
 import BarChart from '../components/charts/BarChart.vue'
-import { monitorApi, type UpMetrics, type UpDurationDist, type VideoMetrics, type VideoHistoryPoint } from '../api/monitor'
+import { monitorApi, type UpMetrics, type UpDurationDist, type VideoMetrics, type VideoHistoryPoint, type HistoryKind } from '../api/monitor'
 import { formatNum, formatTimestamp, formatDuration, formatSmartTimestamps, formatRecordDuration } from '../utils/format'
 import katex from 'katex'
 
@@ -718,6 +737,70 @@ const name = computed(() => upMetrics.value ? `${target}` : target)
 
 function goVideo(bvid: string) {
   router.push(`/detail/video/${bvid}`)
+}
+
+function getChartRef(kind: HistoryKind) {
+  if (kind === 'up') return upChartRef.value
+  if (kind === 'video') return videoChartRef.value
+  if (kind === 'dynamic') return dynamicChartRef.value
+  return columnChartRef.value
+}
+
+function unlockChart(kind: HistoryKind) {
+  getChartRef(kind)?.unlockDelete()
+}
+
+function findHistoryPoint(kind: HistoryKind, id: number): any {
+  const list =
+    kind === 'up' ? upHistory.value
+    : kind === 'video' ? videoHistory.value
+    : kind === 'dynamic' ? dynamicHistory.value
+    : columnHistory.value
+  return list.find((h: any) => h.id === id)
+}
+
+function describeHistoryPoint(kind: HistoryKind, point: any): string {
+  if (!point) return ''
+  const time = formatTimestamp(point.created_at)
+  if (kind === 'up') {
+    return `${time}\n总播放 ${formatNum(point.total_views)} · 总弹幕 ${formatNum(point.total_danmaku)} · 总评论 ${formatNum(point.total_comments)}`
+  }
+  if (kind === 'video') {
+    return `${time}\n播放 ${formatNum(point.play)} · 弹幕 ${formatNum(point.video_review)} · 评论 ${formatNum(point.comment)}`
+  }
+  if (kind === 'dynamic') {
+    return `${time}\n点赞 ${formatNum(point.like_count)} · 评论 ${formatNum(point.reply_count)} · 转发 ${formatNum(point.forward_count)}`
+  }
+  return `${time}\n点赞 ${formatNum(point.like_count)} · 评论 ${formatNum(point.reply_count)} · 收藏 ${formatNum(point.favorite_count)}`
+}
+
+async function onDeleteHistoryPoint(kind: HistoryKind, payload: DeletePointPayload) {
+  const point = findHistoryPoint(kind, payload.id)
+  const detail = describeHistoryPoint(kind, point)
+  const html = detail
+    ? `将删除该条历史快照，数据库与曲线会同步更新，操作不可恢复。<div style="margin-top:10px;color:#606266;line-height:1.6">${detail.replace(/\n/g, '<br>')}</div>`
+    : `将删除时间点 ${payload.category} 的历史快照，操作不可恢复。`
+  try {
+    await ElMessageBox.confirm(html, '删除异常数据点', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+      dangerouslyUseHTMLString: true,
+    })
+  } catch {
+    unlockChart(kind)
+    return
+  }
+  try {
+    await monitorApi.deleteHistoryPoint(kind, payload.id)
+    ElMessage.success('已删除该数据点')
+    await loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  } finally {
+    unlockChart(kind)
+  }
 }
 
 // ── UP 图表：数据更新序列（含 原始值/增量 切换） ──
@@ -1023,6 +1106,20 @@ const columnHistSeries = computed(() => {
     )
   })
 })
+
+/** 图表 x 下标 → 历史表 id（增量模式映射到差值后一点） */
+function buildPointIds(history: { id?: number }[], mode: string): number[] {
+  if (!history.length) return []
+  if (mode === 'delta') {
+    return history.slice(1).map(h => h.id ?? 0)
+  }
+  return history.map(h => h.id ?? 0)
+}
+
+const upPointIds = computed(() => buildPointIds(filteredUpHistory.value, upHistMode.value))
+const videoPointIds = computed(() => buildPointIds(filteredVideoHistory.value, videoHistMode.value))
+const dynamicPointIds = computed(() => buildPointIds(filteredDynamicHistory.value, dynamicHistMode.value))
+const columnPointIds = computed(() => buildPointIds(filteredColumnHistory.value, columnHistMode.value))
 
 async function loadData() {
   loading.value = true

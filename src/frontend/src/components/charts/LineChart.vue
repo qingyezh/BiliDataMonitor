@@ -1,6 +1,10 @@
 <template>
   <div>
     <div ref="chartRef" style="width: 100%; height: 300px"></div>
+    <div v-if="enableDelete" class="delete-hint">
+      悬停数据点后按 <kbd>L</kbd> 锁定并删除该快照
+      <span v-if="lockedIndex != null" class="locked-tip">已锁定 · 等待确认</span>
+    </div>
     <div v-if="isMultiSeries" class="custom-legend">
       <div class="legend-row" @click="onSeriesLegendClick">
         <div v-for="(s, i) in (values as SeriesItem[])" :key="s.name" class="legend-item" :data-index="i" :class="{ inactive: !seriesVisible[i] }">
@@ -60,6 +64,28 @@
 .legend-item.inactive .legend-icon {
   background: #ddd !important;
 }
+.delete-hint {
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+}
+.delete-hint kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid #dcdfe6;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #f5f7fa;
+  font-family: inherit;
+  font-size: 11px;
+  color: #606266;
+}
+.delete-hint .locked-tip {
+  margin-left: 8px;
+  color: #f56c6c;
+  font-weight: 600;
+}
 </style>
 
 <script setup lang="ts">
@@ -88,8 +114,15 @@ export interface TrendFormula {
   r2: number
 }
 
+export interface DeletePointPayload {
+  id: number
+  index: number
+  category: string
+}
+
 const emit = defineEmits<{
   (e: 'trend-formulas', formulas: TrendFormula[]): void
+  (e: 'delete-point', payload: DeletePointPayload): void
 }>()
 
 const props = withDefaults(defineProps<{
@@ -107,6 +140,8 @@ const props = withDefaults(defineProps<{
   showTrendLine?: boolean
   trendLineSeries?: number[]
   showAvgLine?: boolean
+  enableDelete?: boolean
+  pointIds?: number[]
 }>(), {
   logMode: false,
   leftAxisLog: false,
@@ -115,10 +150,14 @@ const props = withDefaults(defineProps<{
   showTrendLine: false,
   trendLineSeries: () => [],
   showAvgLine: false,
+  enableDelete: false,
+  pointIds: () => [],
 })
 
 const chartRef = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
+const hoveredIndex = ref<number | null>(null)
+const lockedIndex = ref<number | null>(null)
 
 const COLORS = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#9B59B6', '#1ABC9C', '#E74C3C']
 
@@ -295,9 +334,56 @@ function formatFormula(coeffs: number[], degree: number): string {
   return `y = e^{\\left(${terms.join('')}\\right)} - 1`
 }
 
+function bindChartEvents() {
+  if (!chart) return
+  chart.off('mouseover')
+  chart.off('globalout')
+  chart.on('mouseover', { seriesType: 'line' }, (params: any) => {
+    if (params?.dataIndex != null) {
+      hoveredIndex.value = params.dataIndex
+    }
+  })
+  chart.on('globalout', () => {
+    if (lockedIndex.value == null) hoveredIndex.value = null
+  })
+}
+
+function isInputTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (!props.enableDelete) return
+  if (e.key !== 'l' && e.key !== 'L') return
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  if (isInputTarget(e.target)) return
+  if (lockedIndex.value != null) return
+  const idx = hoveredIndex.value
+  if (idx == null) return
+  const id = props.pointIds?.[idx]
+  if (id == null || id <= 0) return
+  lockedIndex.value = idx
+  chart?.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: idx })
+  updateChart()
+  emit('delete-point', {
+    id,
+    index: idx,
+    category: props.categories[idx] || '',
+  })
+}
+
+function unlockDelete() {
+  lockedIndex.value = null
+  chart?.dispatchAction({ type: 'hideTip' })
+  updateChart()
+}
+
 function initChart() {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
+  bindChartEvents()
   if (isMultiSeries.value) {
     seriesVisible.value = (props.values as SeriesItem[]).map(s => !s.defaultHidden)
     const trendInit: Record<string, boolean> = {}
@@ -534,6 +620,36 @@ function renderChart() {
     series = [single]
   }
 
+  // 锁定删除：在首个可见折线系列上画锁定标记
+  if (lockedIndex.value != null && props.enableDelete && series.length > 0) {
+    const idx = lockedIndex.value
+    const targetSeries = series.find(s => s.type === 'line' && s.symbol !== 'none') || series[0]
+    const rawVal = targetSeries?.data?.[idx]
+    if (targetSeries && typeof rawVal === 'number') {
+      if (!targetSeries.markPoint) targetSeries.markPoint = { data: [] }
+      if (!Array.isArray(targetSeries.markPoint.data)) targetSeries.markPoint.data = []
+      targetSeries.markPoint.data.push({
+        coord: [idx, rawVal],
+        symbol: 'circle',
+        symbolSize: 18,
+        itemStyle: {
+          color: 'transparent',
+          borderColor: '#f56c6c',
+          borderWidth: 3,
+        },
+        label: {
+          show: true,
+          formatter: '删除?',
+          position: 'top',
+          color: '#f56c6c',
+          fontSize: 10,
+          fontWeight: 'bold',
+        },
+        z: 100,
+      })
+    }
+  }
+
   if (props.showTrendLine && isMultiSeries && (props.values as SeriesItem[]).length > 0) {
     const formulas: TrendFormula[] = []
     for (const seriesIdx of props.trendLineSeries) {
@@ -752,10 +868,12 @@ watch(() => [props.categories, props.values], () => {
 watch([() => props.logMode, () => props.leftAxisLog, () => props.rightAxisLog, () => props.unequalLog, () => props.showTrendLine, () => props.trendLineSeries], () => {
   if (!chart && chartRef.value) {
     chart = echarts.init(chartRef.value)
+    bindChartEvents()
   }
   if (chart) {
     chart.dispose()
     chart = echarts.init(chartRef.value!)
+    bindChartEvents()
   }
   updateChart()
 })
@@ -764,11 +882,15 @@ watch(() => props.showAvgLine, () => {
   updateChart()
 })
 
-onMounted(initChart)
+onMounted(() => {
+  initChart()
+  window.addEventListener('keydown', onKeyDown)
+})
 onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
   chart?.dispose()
   chart = null
 })
 
-defineExpose({ exportCsv, saveChart })
+defineExpose({ exportCsv, saveChart, unlockDelete })
 </script>

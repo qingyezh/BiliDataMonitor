@@ -103,6 +103,7 @@ export interface VideoMetrics {
 }
 
 export interface VideoHistoryPoint {
+  id?: number
   bvid: string
   play: number
   video_review: number
@@ -111,6 +112,8 @@ export interface VideoHistoryPoint {
   page_count: number
   created_at: number
 }
+
+export type HistoryKind = 'up' | 'video' | 'dynamic' | 'column'
 
 export interface AppSettings {
   port: number
@@ -193,6 +196,9 @@ export const monitorApi = {
   clearAllData: () => api.post('/system/clear-all').then(r => unwrap<any>(r)),
   // 备份数据库
   backupDatabase: () => api.post('/system/backup').then(r => unwrap<any>(r)),
+  // 删除单条历史快照（异常数据点）
+  deleteHistoryPoint: (kind: HistoryKind, id: number) =>
+    api.delete(`/monitor/history/${kind}/${id}`).then(r => unwrap<{ deleted: boolean; target?: string }>(r)),
 
   // 认证
   login: (username: string, password: string) => api.post('/auth/login', { username, password }).then(r => unwrap<{ role: string; apiKey: string }>(r)),

@@ -717,8 +717,60 @@ export function listUpDurationDist(mid: string): UpDurationDist[] {
   return getDb().prepare('SELECT * FROM up_duration_dist WHERE mid = ? ORDER BY id ASC').all(mid) as UpDurationDist[]
 }
 
-export function listUpHistory(mid: string): { created_at: number; total_views: number; total_videos: number; total_danmaku: number; total_comments: number; avg_duration: number }[] {
-  return getDb().prepare('SELECT created_at, total_views, total_videos, total_danmaku, total_comments, avg_duration FROM up_history WHERE mid = ? ORDER BY created_at ASC').all(mid) as { created_at: number; total_views: number; total_videos: number; total_danmaku: number; total_comments: number; avg_duration: number }[]
+export function listUpHistory(mid: string): { id: number; created_at: number; total_views: number; total_videos: number; total_danmaku: number; total_comments: number; avg_duration: number }[] {
+  return getDb().prepare('SELECT id, created_at, total_views, total_videos, total_danmaku, total_comments, avg_duration FROM up_history WHERE mid = ? ORDER BY created_at ASC').all(mid) as { id: number; created_at: number; total_views: number; total_videos: number; total_danmaku: number; total_comments: number; avg_duration: number }[]
+}
+
+export type HistoryKind = 'up' | 'video' | 'dynamic' | 'column'
+
+/** 删除单条历史快照（按历史表 id），并按需重算派生缓存 */
+export function deleteHistoryPoint(kind: HistoryKind, id: number): { deleted: boolean; target?: string } {
+  const d = getDb()
+  let target: string | undefined
+  let table = ''
+
+  const tx = d.transaction(() => {
+    if (kind === 'up') {
+      table = 'up_history'
+      const row = d.prepare('SELECT mid FROM up_history WHERE id = ?').get(id) as { mid: string } | undefined
+      target = row?.mid
+      if (!target) return false
+      d.prepare('DELETE FROM up_history WHERE id = ?').run(id)
+      return true
+    }
+    if (kind === 'video') {
+      table = 'video_history'
+      const row = d.prepare('SELECT bvid FROM video_history WHERE id = ?').get(id) as { bvid: string } | undefined
+      target = row?.bvid
+      if (!target) return false
+      d.prepare('DELETE FROM video_history WHERE id = ?').run(id)
+      recomputeVideoMetrics(target, Date.now())
+      return true
+    }
+    if (kind === 'dynamic') {
+      table = 'dynamic_history'
+      const row = d.prepare('SELECT dynamic_id FROM dynamic_history WHERE id = ?').get(id) as { dynamic_id: string } | undefined
+      target = row?.dynamic_id
+      if (!target) return false
+      d.prepare('DELETE FROM dynamic_history WHERE id = ?').run(id)
+      return true
+    }
+    if (kind === 'column') {
+      table = 'column_history'
+      const row = d.prepare('SELECT cvid FROM column_history WHERE id = ?').get(id) as { cvid: string } | undefined
+      target = row?.cvid
+      if (!target) return false
+      d.prepare('DELETE FROM column_history WHERE id = ?').run(id)
+      return true
+    }
+    return false
+  })
+
+  const deleted = tx()
+  if (deleted) {
+    logger.info('已删除历史数据点', { kind, id, target, table })
+  }
+  return { deleted, target }
 }
 
 export function getVideoMetrics(bvid: string): VideoMetrics | undefined {
