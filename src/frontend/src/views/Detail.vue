@@ -1068,20 +1068,21 @@ const videoHistSeries = computed(() => {
     { name: '弹幕', key: 'video_review' as const, idx: 1 },
     { name: '评论', key: 'comment' as const, idx: 2 },
   ]
-  // 仅多分P视频展示分P曲线；图例始终列出，默认隐藏（可点开）
+  // 仅多分P视频展示分P曲线；默认隐藏，单独第三轴（数量级与播放/互动不同）
   if (videoHasPageSeries.value) {
     metrics.push({ name: '分P', key: 'page_count' as const, idx: 3 })
   }
   return metrics.map(m => {
     const raw = videoChartData.value.map(h => (h[m.key] ?? 0) as number)
     const defaultHidden = m.key === 'page_count'
+    const axisIdx = m.key === 'page_count' ? 2 : (m.idx === 0 ? 0 : 1)
     if (videoHistMode.value === 'raw') {
       return {
         name: m.name,
         fullName: m.name,
         values: raw,
         color: colors[m.idx],
-        yAxisIndex: m.idx === 0 ? 0 : 1,
+        yAxisIndex: axisIdx,
         showLabel: labelSwitches[m.idx].value,
         defaultHidden,
       }
@@ -1092,7 +1093,7 @@ const videoHistSeries = computed(() => {
       videoChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
-      m.idx === 0 ? 0 : 1,
+      axisIdx,
       chartGapMinutes.value,
       labelSwitches[m.idx].value
     )

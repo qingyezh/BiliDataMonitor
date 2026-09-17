@@ -403,6 +403,8 @@ function renderChart() {
   const yMaxDecimals = Math.max(0, ...allNums.map(v => decimalPlaces(v)))
 
   const getAxisLog = (axisIdx: number) => {
+    // 第三轴（分P等）为小整数，不做对数
+    if (axisIdx >= 2) return false
     if (axisIdx === 0) return props.logMode && props.leftAxisLog
     return props.logMode && props.rightAxisLog
   }
@@ -670,17 +672,34 @@ function renderChart() {
     allFormulas = []
   }
 
-  const hasDualAxis = isMultiSeries && (props.values as SeriesItem[]).some(s => s.yAxisIndex === 1)
+  const maxAxisIdx = isMultiSeries
+    ? Math.max(0, ...(props.values as SeriesItem[]).map(s => s.yAxisIndex ?? 0))
+    : 0
 
   function makeYAxis(axisIdx: number) {
     const isLog = getAxisLog(axisIdx)
     const isUnequal = useUnequalLog(axisIdx)
+    const common: Record<string, unknown> = {
+      splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
+      axisLabel: { color: '#999', fontSize: 11 },
+    }
+    if (axisIdx === 1) {
+      common.position = 'right'
+    } else if (axisIdx >= 2) {
+      common.position = 'right'
+      common.offset = 48
+      common.name = '分P'
+      common.nameTextStyle = { color: '#999', fontSize: 11 }
+      common.axisLabel = { color: '#9B59B6', fontSize: 11, formatter: (v: number) => String(Math.round(v)) }
+      common.splitLine = { show: false }
+      return { type: 'value', min: 0, ...common }
+    }
 
     if (isUnequal) {
       return {
+        ...common,
         type: 'value',
         min: 0,
-        splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
         axisLabel: {
           color: '#999',
           fontSize: 11,
@@ -691,16 +710,16 @@ function renderChart() {
 
     if (isLog) {
       return {
+        ...common,
         type: 'log',
         min: 1,
-        splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
         axisLabel: { color: '#999', fontSize: 11, formatter: (v: number) => v.toFixed(yMaxDecimals) },
       }
     }
 
     return {
+      ...common,
       type: 'value',
-      splitLine: { lineStyle: { color: '#f0f0f0', type: 'dashed' } },
       axisLabel: { color: '#999', fontSize: 11, formatter: (v: number) => v.toFixed(yMaxDecimals) },
     }
   }
@@ -752,7 +771,7 @@ function renderChart() {
 
     grid: {
       left: '8%',
-      right: '8%',
+      right: maxAxisIdx >= 2 ? '14%' : '8%',
       top: props.title ? 50 : 20,
       bottom: isMultiSeries ? 30 : 20,
       containLabel: true,
@@ -769,9 +788,9 @@ function renderChart() {
         rotate: props.categories.length > 12 ? 45 : 0,
       },
     },
-    yAxis: hasDualAxis
-      ? [makeYAxis(0), makeYAxis(1)]
-      : makeYAxis(0),
+    yAxis: maxAxisIdx === 0
+      ? makeYAxis(0)
+      : Array.from({ length: maxAxisIdx + 1 }, (_, i) => makeYAxis(i)),
     series,
   }, true)
 
