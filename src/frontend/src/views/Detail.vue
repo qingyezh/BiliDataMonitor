@@ -86,7 +86,7 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
-              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻点间隔：按该粒度重采样（每桶取末次快照，允许时间抖动）">
                 <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
               <el-switch v-model="upLogMode" size="small" active-text="对数" />
@@ -268,7 +268,7 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
-              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻点间隔：按该粒度重采样（每桶取末次快照，允许时间抖动）">
                 <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
               <el-switch v-model="videoLogMode" size="small" active-text="对数" />
@@ -381,7 +381,7 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
-              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻点间隔：按该粒度重采样（每桶取末次快照，允许时间抖动）">
                 <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
               <el-switch v-model="dynamicLogMode" size="small" active-text="对数" />
@@ -493,7 +493,7 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
-              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻点间隔：按该粒度重采样（每桶取末次快照，允许时间抖动）">
                 <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
               <el-switch v-model="columnLogMode" size="small" active-text="对数" />
@@ -909,7 +909,7 @@ const columnDelta24h = computed(() => {
 })
 
 const upHistDates = computed(() => {
-  const timestamps = filteredUpHistory.value.map(h => h.created_at)
+  const timestamps = upChartData.value.map(h => h.created_at)
   const sliced = upHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
@@ -929,7 +929,8 @@ function buildDeltaSeries(
   intervalMinutes: number,
   showLabel: boolean = false
 ) {
-  const gapLimitMs = intervalMinutes * 60 * 1000 * 1.5
+  // 重采样后相邻点约等于所选间隔；允许抖动与偶发缺样，仅跨多桶才断线
+  const gapLimitMs = intervalMinutes * 60 * 1000 * 2.5
   const slicedTs = timestamps.slice(1)
   const dates = formatSmartTimestamps(slicedTs)
   const delta = rawValues.slice(1).map((v, i) => v - rawValues[i])
@@ -968,13 +969,13 @@ const upHistSeries = computed(() => {
     { name: '总评论', key: 'total_comments' as const, idx: 2 },
   ]
   return metrics.map(m => {
-    const raw = filteredUpHistory.value.map(h => h[m.key] || 0)
+    const raw = upChartData.value.map(h => h[m.key] || 0)
     if (upHistMode.value === 'raw') {
       return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
     }
     return buildDeltaSeries(
       `${m.name}增量`,
-      filteredUpHistory.value.map(h => h.created_at),
+      upChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
@@ -1001,13 +1002,13 @@ const filteredVideoHistory = computed(() => filterByDateRange(videoHistory.value
 
 // 增量模式去掉首日（首日无前值）；智能时间标签（同年月日只显示一次日期）
 const videoHistDates = computed(() => {
-  const timestamps = filteredVideoHistory.value.map(h => h.created_at)
+  const timestamps = videoChartData.value.map(h => h.created_at)
   const sliced = videoHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
 const videoHistSeries = computed(() => {
   if (videoHistMode.value === 'decrease') {
-    const decreaseValues = buildDecreaseSeries(filteredVideoHistory.value, 'comment')
+    const decreaseValues = buildDecreaseSeries(videoChartData.value, 'comment')
     return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
   }
   const colors = ['#409eff', '#e6a23c', '#67c23a', '#9b59b6']
@@ -1022,7 +1023,7 @@ const videoHistSeries = computed(() => {
     metrics.push({ name: '分P', key: 'page_count' as const, idx: 3 })
   }
   return metrics.map(m => {
-    const raw = filteredVideoHistory.value.map(h => (h[m.key] ?? 0) as number)
+    const raw = videoChartData.value.map(h => (h[m.key] ?? 0) as number)
     const defaultHidden = m.key === 'page_count'
     if (videoHistMode.value === 'raw') {
       return {
@@ -1036,7 +1037,7 @@ const videoHistSeries = computed(() => {
     }
     const series = buildDeltaSeries(
       `${m.name}增量`,
-      filteredVideoHistory.value.map(h => h.created_at),
+      videoChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
@@ -1053,13 +1054,13 @@ const dynamicHistMode = ref<'raw' | 'delta' | 'decrease'>('raw')
 const filteredDynamicHistory = computed(() => filterByDateRange(dynamicHistory.value, dynamicDateRange.value, dynamicShowAll.value))
 
 const dynamicHistDates = computed(() => {
-  const timestamps = filteredDynamicHistory.value.map(h => h.created_at)
+  const timestamps = dynamicChartData.value.map(h => h.created_at)
   const sliced = dynamicHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
 const dynamicHistSeries = computed(() => {
   if (dynamicHistMode.value === 'decrease') {
-    const decreaseValues = buildDecreaseSeries(filteredDynamicHistory.value, 'reply_count')
+    const decreaseValues = buildDecreaseSeries(dynamicChartData.value, 'reply_count')
     return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
   }
   const colors = ['#409eff', '#e6a23c', '#67c23a']
@@ -1070,13 +1071,13 @@ const dynamicHistSeries = computed(() => {
     { name: '转发', key: 'forward_count' as const, idx: 2 },
   ]
   return metrics.map(m => {
-    const raw = filteredDynamicHistory.value.map(h => h[m.key])
+    const raw = dynamicChartData.value.map(h => h[m.key])
     if (dynamicHistMode.value === 'raw') {
       return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
     }
     return buildDeltaSeries(
       `${m.name}增量`,
-      filteredDynamicHistory.value.map(h => h.created_at),
+      dynamicChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
@@ -1092,13 +1093,13 @@ const columnHistMode = ref<'raw' | 'delta' | 'decrease'>('raw')
 const filteredColumnHistory = computed(() => filterByDateRange(columnHistory.value, columnDateRange.value, columnShowAll.value))
 
 const columnHistDates = computed(() => {
-  const timestamps = filteredColumnHistory.value.map(h => h.created_at)
+  const timestamps = columnChartData.value.map(h => h.created_at)
   const sliced = columnHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
 const columnHistSeries = computed(() => {
   if (columnHistMode.value === 'decrease') {
-    const decreaseValues = buildDecreaseSeries(filteredColumnHistory.value, 'reply_count')
+    const decreaseValues = buildDecreaseSeries(columnChartData.value, 'reply_count')
     return [{ name: '评论下降', values: decreaseValues, color: '#f56c6c', yAxisIndex: 1, showLabel: false }]
   }
   const colors = ['#409eff', '#e6a23c', '#67c23a']
@@ -1109,13 +1110,13 @@ const columnHistSeries = computed(() => {
     { name: '收藏', key: 'favorite_count' as const, idx: 2 },
   ]
   return metrics.map(m => {
-    const raw = filteredColumnHistory.value.map(h => h[m.key])
+    const raw = columnChartData.value.map(h => h[m.key])
     if (columnHistMode.value === 'raw') {
       return { name: m.name, values: raw, color: colors[m.idx], yAxisIndex: m.idx === 0 ? 0 : 1, showLabel: labelSwitches[m.idx].value }
     }
     return buildDeltaSeries(
       `${m.name}增量`,
-      filteredColumnHistory.value.map(h => h.created_at),
+      columnChartData.value.map(h => h.created_at),
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
@@ -1124,6 +1125,28 @@ const columnHistSeries = computed(() => {
     )
   })
 })
+
+/**
+ * 按期望相邻间隔重采样：时间桶 = floor(ts / interval)，每桶保留末次快照。
+ * 实际采样不会严格对齐，故不要求精确等间隔；空桶自然形成稀疏点。
+ */
+function resampleByInterval<T extends { created_at: number }>(history: T[], intervalMinutes: number): T[] {
+  if (!history.length) return history
+  const bucketMs = Math.max(1, intervalMinutes) * 60 * 1000
+  const buckets = new Map<number, T>()
+  for (const h of history) {
+    const key = Math.floor(h.created_at / bucketMs)
+    const prev = buckets.get(key)
+    if (!prev || h.created_at >= prev.created_at) buckets.set(key, h)
+  }
+  return [...buckets.values()].sort((a, b) => a.created_at - b.created_at)
+}
+
+/** 曲线用数据：日期筛选后再按间隔重采样（原始/增量/下降共用） */
+const upChartData = computed(() => resampleByInterval(filteredUpHistory.value, chartGapMinutes.value))
+const videoChartData = computed(() => resampleByInterval(filteredVideoHistory.value, chartGapMinutes.value))
+const dynamicChartData = computed(() => resampleByInterval(filteredDynamicHistory.value, chartGapMinutes.value))
+const columnChartData = computed(() => resampleByInterval(filteredColumnHistory.value, chartGapMinutes.value))
 
 /** 图表 x 下标 → 历史表 id（增量模式映射到差值后一点） */
 function buildPointIds(history: { id?: number }[], mode: string): number[] {
@@ -1134,10 +1157,10 @@ function buildPointIds(history: { id?: number }[], mode: string): number[] {
   return history.map(h => h.id ?? 0)
 }
 
-const upPointIds = computed(() => buildPointIds(filteredUpHistory.value, upHistMode.value))
-const videoPointIds = computed(() => buildPointIds(filteredVideoHistory.value, videoHistMode.value))
-const dynamicPointIds = computed(() => buildPointIds(filteredDynamicHistory.value, dynamicHistMode.value))
-const columnPointIds = computed(() => buildPointIds(filteredColumnHistory.value, columnHistMode.value))
+const upPointIds = computed(() => buildPointIds(upChartData.value, upHistMode.value))
+const videoPointIds = computed(() => buildPointIds(videoChartData.value, videoHistMode.value))
+const dynamicPointIds = computed(() => buildPointIds(dynamicChartData.value, dynamicHistMode.value))
+const columnPointIds = computed(() => buildPointIds(columnChartData.value, columnHistMode.value))
 
 async function loadData() {
   loading.value = true
