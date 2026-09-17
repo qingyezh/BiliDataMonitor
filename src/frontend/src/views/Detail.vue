@@ -77,7 +77,7 @@
             :right-axis-log="upRightAxisLog"
             :unequal-log="true"
             :show-trend-line="true"
-            :trend-line-series="[0, 1, 2]"
+            :trend-line-series="TREND_LINE_SERIES"
             :show-avg-line="upShowAvgLine"
             :enable-delete="true"
             :point-ids="upPointIds"
@@ -259,7 +259,7 @@
             :right-axis-log="videoRightAxisLog"
             :unequal-log="true"
             :show-trend-line="true"
-            :trend-line-series="[0, 1, 2]"
+            :trend-line-series="TREND_LINE_SERIES"
             :show-avg-line="videoShowAvgLine"
             :enable-delete="true"
             :point-ids="videoPointIds"
@@ -372,7 +372,7 @@
             :right-axis-log="dynamicRightAxisLog"
             :unequal-log="true"
             :show-trend-line="true"
-            :trend-line-series="[0, 1, 2]"
+            :trend-line-series="TREND_LINE_SERIES"
             :show-avg-line="dynamicShowAvgLine"
             :enable-delete="true"
             :point-ids="dynamicPointIds"
@@ -484,7 +484,7 @@
             :right-axis-log="columnRightAxisLog"
             :unequal-log="true"
             :show-trend-line="true"
-            :trend-line-series="[0, 1, 2]"
+            :trend-line-series="TREND_LINE_SERIES"
             :show-avg-line="columnShowAvgLine"
             :enable-delete="true"
             :point-ids="columnPointIds"
@@ -578,6 +578,8 @@ const GAP_MINUTE_OPTIONS = [
   { label: '6小时', value: 360 },
   { label: '24小时', value: 1440 },
 ]
+/** 稳定引用，避免每次渲染新建数组触发图表 dispose */
+const TREND_LINE_SERIES: number[] = [0, 1, 2]
 
 // 图表 ref
 const upChartRef = ref<InstanceType<typeof LineChart> | null>(null)

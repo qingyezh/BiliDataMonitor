@@ -828,6 +828,7 @@ function exportCsv() {
 watch(() => [props.categories, props.values], () => {
   if (!chart && chartRef.value) {
     chart = echarts.init(chartRef.value)
+    bindChartEvents()
   }
   // 系列数量变化时按 defaultHidden 重置可见性（保留同长度时的用户点击状态）
   if (isMultiSeries.value) {
@@ -837,9 +838,11 @@ watch(() => [props.categories, props.values], () => {
     }
   }
   updateChart()
+  chart?.resize()
 }, { deep: true })
 
-watch([() => props.logMode, () => props.leftAxisLog, () => props.rightAxisLog, () => props.unequalLog, () => props.showTrendLine, () => props.trendLineSeries], () => {
+// 仅对数相关配置需 dispose 重建（yAxis type 变化 setOption 不生效）
+watch([() => props.logMode, () => props.leftAxisLog, () => props.rightAxisLog, () => props.unequalLog], () => {
   if (!chart && chartRef.value) {
     chart = echarts.init(chartRef.value)
     bindChartEvents()
@@ -850,18 +853,30 @@ watch([() => props.logMode, () => props.leftAxisLog, () => props.rightAxisLog, (
     bindChartEvents()
   }
   updateChart()
+  chart?.resize()
 })
 
-watch(() => props.showAvgLine, () => {
+// 趋势线/均值：只重绘，禁止 dispose（父组件内联数组会频繁触发，dispose 会导致空白图）
+watch([() => props.showTrendLine, () => props.trendLineSeries, () => props.showAvgLine], () => {
   updateChart()
 })
+
+let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   initChart()
   window.addEventListener('keydown', onKeyDown)
+  if (chartRef.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      chart?.resize()
+    })
+    resizeObserver.observe(chartRef.value)
+  }
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
+  resizeObserver?.disconnect()
+  resizeObserver = null
   chart?.dispose()
   chart = null
 })

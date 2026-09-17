@@ -1,5 +1,12 @@
 # 版本记录
 
+## v0.2.0.6 (2026-09-17)
+
+- fix: 曲线空白/不刷新
+  - 趋势线配置变更不再 dispose 图表（原先内联数组每次渲染触发重建导致空白）
+  - Detail 使用稳定 `TREND_LINE_SERIES` 引用
+  - LineChart 增加 ResizeObserver，数据更新后 resize
+
 ## v0.2.0.5 (2026-09-17)
 
 - feat: 图表左下角相邻点间隔选择
