@@ -26,6 +26,13 @@
           <el-switch v-model="logMode" size="small" active-text="对数" />
           <el-switch v-model="showAvgLine" size="small" active-text="均值" />
           <el-switch v-model="showTrend" size="small" active-text="趋势" />
+          <el-switch
+            v-if="metricKey !== 'page'"
+            v-model="overlayPage"
+            size="small"
+            active-text="叠加分P"
+            title="在当前指标上叠加各视频分P曲线（第三轴）"
+          />
           <el-button size="small" @click="reload">刷新</el-button>
           <el-button size="small" @click="exportCsv">CSV</el-button>
           <el-button size="small" @click="savePng">PNG</el-button>
@@ -101,6 +108,7 @@
         时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟
         <template v-if="histMode === 'delta'"> · 增量：相邻有效点差值，跨度过大断线</template>
         <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
+        <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
       </div>
       <div v-if="formulas.length" style="margin-top: 8px; padding: 10px 14px; background: var(--bg); border-radius: 6px">
         <el-collapse>
@@ -206,6 +214,8 @@ const showAll = ref(true)
 const logMode = ref(false)
 const showAvgLine = ref(false)
 const showTrend = ref(false)
+/** 在非「分P数」指标上叠加视频分P曲线（第三轴） */
+const overlayPage = ref(false)
 const formulas = ref<TrendFormula[]>([])
 const chartRef = ref<InstanceType<typeof LineChart> | null>(null)
 
@@ -345,7 +355,11 @@ function buildDelta(values: (number | null)[], times: number[], intervalMin: num
   return out
 }
 
-const trendSeriesIdx = computed(() => (showTrend.value ? targets.value.map((_, i) => i) : []))
+const trendSeriesIdx = computed(() => {
+  // 叠加分P后系列数与 targets 不对齐，避免误挂趋势线
+  if (!showTrend.value || overlayPage.value) return []
+  return targets.value.map((_, i) => i)
+})
 
 const chartCategories = computed(() => {
   // filled in chartSeries computation via side cache
@@ -357,45 +371,66 @@ const chartSeries = computed(() => {
   const fieldOf = (t: CompareTarget) => METRIC_FIELD[metricKey.value]?.[t.type]
   const timesList: number[][] = []
   const valuesList: number[][] = []
-  const validIdx: number[] = []
+  const metaList: { origIdx: number; axis: number; name: string; fullName: string; color: string }[] = []
+
   list.forEach((t, i) => {
     const field = fieldOf(t)
     const ranged = filterByRange(seriesRaw.value[seriesKey(t)] || [])
-    if (!field || !ranged.length) return
-    // 清洗后按所选间隔重采样，再参与 20s 槽对齐
-    const pts = resampleByInterval(ranged, chartGapMinutes.value)
-    let ts = pts.map(p => p.created_at)
-    let vs = pts.map(p => Number(p[field] ?? 0))
-    if (histMode.value === 'delta') {
-      vs = buildDelta(vs, ts, chartGapMinutes.value) as number[]
-      ts = ts.slice(1)
+    if (field && ranged.length) {
+      const pts = resampleByInterval(ranged, chartGapMinutes.value)
+      let ts = pts.map(p => p.created_at)
+      let vs = pts.map(p => Number(p[field] ?? 0))
+      if (histMode.value === 'delta') {
+        vs = buildDelta(vs, ts, chartGapMinutes.value) as number[]
+        ts = ts.slice(1)
+      }
+      vs = applyScale(vs) as number[]
+      timesList.push(ts)
+      valuesList.push(vs as number[])
+      metaList.push({
+        origIdx: i,
+        axis: 0,
+        name: `${typeLabel(t.type)}·${shortName(t.name || t.target)}`,
+        fullName: `${typeLabel(t.type)}·${t.name || t.target}`,
+        color: COLORS[i % COLORS.length],
+      })
     }
-    vs = applyScale(vs) as number[]
-    timesList.push(ts)
-    valuesList.push(vs as number[])
-    validIdx.push(i)
+    // 叠加分P：仅视频；与主指标同一时间对齐流程，挂第三轴，不做 scale 变换
+    if (overlayPage.value && metricKey.value !== 'page' && t.type === 'video' && ranged.length) {
+      const pts = resampleByInterval(ranged, chartGapMinutes.value)
+      let ts = pts.map(p => p.created_at)
+      let vs = pts.map(p => Number(p.page_count ?? 0))
+      if (histMode.value === 'delta') {
+        vs = buildDelta(vs, ts, chartGapMinutes.value) as number[]
+        ts = ts.slice(1)
+      }
+      timesList.push(ts)
+      valuesList.push(vs as number[])
+      metaList.push({
+        origIdx: i,
+        axis: 2,
+        name: `分P·${shortName(t.name || t.target)}`,
+        fullName: `分P·${t.name || t.target}`,
+        color: COLORS[i % COLORS.length],
+      })
+    }
   })
+
   const { slots, aligned } = alignByTimeSlots(timesList, valuesList, ALIGN_TOLERANCE_MS)
   alignedCache.value = {
     categories: timeAxis.value === 'relative'
-      ? formatRelativeSlots(slots, list, validIdx)
+      ? formatRelativeSlots(slots, list, list.map((_, i) => i))
       : formatSmartTimestamps(slots),
     slots,
   }
-  const series: { name: string; values: (number | null)[]; color: string; yAxisIndex: number; showLabel: boolean }[] = []
-  validIdx.forEach((origIdx, j) => {
-    const t = list[origIdx]
-    const full = `${typeLabel(t.type)}·${t.name || t.target}`
-    series.push({
-      name: `${typeLabel(t.type)}·${shortName(t.name || t.target)}`,
-      fullName: full,
-      values: aligned[j] || [],
-      color: COLORS[origIdx % COLORS.length],
-      yAxisIndex: 0,
-      showLabel: false,
-    })
-  })
-  return series
+  return metaList.map((m, j) => ({
+    name: m.name,
+    fullName: m.fullName,
+    values: aligned[j] || [],
+    color: m.color,
+    yAxisIndex: m.axis,
+    showLabel: false,
+  }))
 })
 
 const alignedCache = ref<{ categories: string[]; slots: number[] }>({ categories: [], slots: [] })
