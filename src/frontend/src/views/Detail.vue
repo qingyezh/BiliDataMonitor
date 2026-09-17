@@ -86,6 +86,9 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+                <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
               <el-switch v-model="upLogMode" size="small" active-text="对数" />
               <template v-if="upLogMode">
                 <el-switch v-model="upLeftAxisLog" size="small" active-text="左轴" />
@@ -265,6 +268,9 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+                <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
               <el-switch v-model="videoLogMode" size="small" active-text="对数" />
               <template v-if="videoLogMode">
                 <el-switch v-model="videoLeftAxisLog" size="small" active-text="左轴" />
@@ -375,6 +381,9 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+                <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
               <el-switch v-model="dynamicLogMode" size="small" active-text="对数" />
               <template v-if="dynamicLogMode">
                 <el-switch v-model="dynamicLeftAxisLog" size="small" active-text="左轴" />
@@ -484,6 +493,9 @@
           />
           <div class="chart-controls">
             <div class="chart-controls-left">
+              <el-select v-model="chartGapMinutes" size="small" class="gap-select" title="相邻数据点期望间隔（增量断线判断）">
+                <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
               <el-switch v-model="columnLogMode" size="small" active-text="对数" />
               <template v-if="columnLogMode">
                 <el-switch v-model="columnLeftAxisLog" size="small" active-text="左轴" />
@@ -558,6 +570,14 @@ const target = route.params.target as string
 const loading = ref(false)
 const refreshing = ref(false)
 const intervalMinutes = ref(30)
+/** 图表相邻点期望间隔（分钟），用于增量模式跨度过大断线 */
+const chartGapMinutes = ref(60)
+const GAP_MINUTE_OPTIONS = [
+  { label: '5分钟', value: 5 },
+  { label: '1小时', value: 60 },
+  { label: '6小时', value: 360 },
+  { label: '24小时', value: 1440 },
+]
 
 // 图表 ref
 const upChartRef = ref<InstanceType<typeof LineChart> | null>(null)
@@ -956,7 +976,7 @@ const upHistSeries = computed(() => {
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
-      intervalMinutes.value,
+      chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
   })
@@ -1018,7 +1038,7 @@ const videoHistSeries = computed(() => {
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
-      intervalMinutes.value,
+      chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
     return { ...series, defaultHidden }
@@ -1058,7 +1078,7 @@ const dynamicHistSeries = computed(() => {
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
-      intervalMinutes.value,
+      chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
   })
@@ -1097,7 +1117,7 @@ const columnHistSeries = computed(() => {
       raw,
       colors[m.idx],
       m.idx === 0 ? 0 : 1,
-      intervalMinutes.value,
+      chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
   })
@@ -1120,10 +1140,12 @@ const columnPointIds = computed(() => buildPointIds(filteredColumnHistory.value,
 async function loadData() {
   loading.value = true
   try {
-    // 加载间隔设置（用于增量断线判断）
+    // 加载轮询间隔，并映射到图表相邻点间隔选项（用于增量断线判断）
     try {
       const s = await monitorApi.settings()
       intervalMinutes.value = s.interval_minutes || 30
+      const m = intervalMinutes.value
+      chartGapMinutes.value = m <= 5 ? 5 : m <= 60 ? 60 : m <= 360 ? 360 : 1440
     } catch { /* 保持默认 */ }
     if (type === 'up') {
       const [status, analysis] = await Promise.all([
@@ -1245,6 +1267,9 @@ onMounted(loadData)
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.gap-select {
+  width: 72px;
 }
 .chart-controls-right {
   display: flex;
