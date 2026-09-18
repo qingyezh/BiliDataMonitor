@@ -141,3 +141,88 @@ export function alignByRelativeBuckets(
     aligned: seriesMaps.map(m => keys.map(k => (m.has(k) ? m.get(k)! : null))),
   }
 }
+
+/** 真数据断档阈值：与上一有效点间隔超过 interval×倍数 时保留 null（不 LOCF） */
+export const RELATIVE_GAP_MULTIPLIER = 3
+
+export interface RelativeSeriesResult {
+  /** 桶起点相对时间 ms（与 values 对齐） */
+  times: number[]
+  /** 稠密化后的值；真断档处为 null */
+  values: (number | null)[]
+  /** 各序列自身 T0（绝对时间 ms） */
+  t0: number
+}
+
+/**
+ * T+0 单网格重采样：以序列首点为 T0，在相对时间上分桶 + LOCF 稠密化。
+ * 避免「绝对墙钟重采样 → 相对分桶」双网格错位导致的碎点/断线。
+ * gapMultiplier：相邻有效点跨度 > interval×gapMultiplier 时该段保留 null。
+ */
+export function resampleRelativeSeries(
+  history: CleanPoint[],
+  field: string,
+  intervalMinutes: number,
+  gapMultiplier: number = RELATIVE_GAP_MULTIPLIER
+): RelativeSeriesResult | null {
+  if (!history.length) return null
+  const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000
+  const t0 = history[0].created_at
+  const buckets = new Map<number, number>()
+  const lastTsByKey = new Map<number, number>()
+  for (const h of history) {
+    const key = Math.floor(Math.max(0, h.created_at - t0) / intervalMs)
+    const v = Number(h[field] ?? 0)
+    const prevTs = lastTsByKey.get(key)
+    if (prevTs === undefined || h.created_at >= prevTs) {
+      buckets.set(key, Number.isNaN(v) ? 0 : v)
+      lastTsByKey.set(key, h.created_at)
+    }
+  }
+  if (!buckets.size) return null
+  const maxKey = Math.max(...buckets.keys())
+  const gapLimitKeys = gapMultiplier
+  const times: number[] = []
+  const values: (number | null)[] = []
+  let lastFilledKey = -1
+  let lastValue: number | null = null
+  for (let key = 0; key <= maxKey; key++) {
+    times.push(key * intervalMs)
+    if (buckets.has(key)) {
+      lastValue = buckets.get(key)!
+      lastFilledKey = key
+      values.push(lastValue)
+      continue
+    }
+    // 空桶：与上一有效点跨度（按 key）超过阈值 → 断档 null，否则 LOCF
+    if (lastFilledKey < 0) {
+      values.push(null)
+      continue
+    }
+    const keyGap = key - lastFilledKey
+    if (keyGap > gapLimitKeys) {
+      values.push(null)
+    } else {
+      values.push(lastValue)
+    }
+  }
+  return { times, values, t0 }
+}
+
+/** 稠密相对序列上算增量；首点或前值为 null / 真断档处为 null */
+export function buildDeltaOnRelative(
+  values: (number | null)[]
+): (number | null)[] {
+  if (values.length < 2) return []
+  const out: (number | null)[] = [null]
+  for (let i = 1; i < values.length; i++) {
+    const a = values[i - 1]
+    const b = values[i]
+    if (a === null || b === null) {
+      out.push(null)
+      continue
+    }
+    out.push(b - a)
+  }
+  return out
+}

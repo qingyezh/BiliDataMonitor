@@ -40,7 +40,8 @@
       </div>
 
       <div class="compare-toolbar2">
-        <div class="date-range">
+        <!-- 日历模式：绝对时间范围 -->
+        <div class="date-range" v-if="timeAxis === 'calendar'">
           <el-date-picker
             v-model="dateRange"
             type="datetimerange"
@@ -59,6 +60,21 @@
           >
             {{ showAll ? '收起' : '全部' }}
           </el-button>
+        </div>
+        <!-- T+0：相对时间窗，零点=各自开始记录 -->
+        <div class="date-range" v-else>
+          <span style="font-size: 12px; color: var(--text-secondary)">相对范围</span>
+          <el-input-number v-model="t0Start" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 88px" />
+          <span style="font-size: 12px; color: var(--text-secondary)">~</span>
+          <el-input-number v-model="t0End" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 88px" />
+          <el-select v-model="t0Unit" size="small" style="width: 72px">
+            <el-option label="小时" value="hour" />
+            <el-option label="天" value="day" />
+          </el-select>
+          <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 24)">前24h</el-button>
+          <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 48)">前48h</el-button>
+          <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 168)">前7天</el-button>
+          <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="t0ShowAll = !t0ShowAll">{{ t0ShowAll ? '限窗' : '全部' }}</el-button>
         </div>
         <div class="target-chips">
           <el-tag
@@ -105,9 +121,14 @@
         />
       </div>
       <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
-        时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟
-        <template v-if="timeAxis === 'relative'"> · T+0：各序列起点对齐，按 {{ chartGapMinutes }} 分钟桶对齐</template>
-        <template v-if="histMode === 'delta'"> · 增量：相邻有效点差值，跨度过大断线</template>
+        <template v-if="timeAxis === 'calendar'">时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟</template>
+        <template v-else>
+          T+0：各序列自起点对齐 ·
+          <template v-if="!t0ShowAll">窗 T+{{ t0StartLabel }}~T+{{ t0EndLabel }} · 约 {{ t0PointCountLabel }} 点 ·</template>
+          <template v-else>窗 全部 ·</template>
+          相对网格重采样 {{ chartGapMinutes }} 分钟
+        </template>
+        <template v-if="histMode === 'delta'"> · 增量：相对网格相邻差值，真断档才断线</template>
         <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
         <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
       </div>
@@ -139,6 +160,7 @@ import {
 } from '../utils/compareStore'
 import {
   dedupeNearDuplicates, resampleByInterval, alignByTimeSlots, alignByRelativeBuckets,
+  resampleRelativeSeries, buildDeltaOnRelative,
   DUPLICATE_MERGE_MS, ALIGN_TOLERANCE_MS, type CleanPoint,
 } from '../utils/historyClean'
 import katex from 'katex'
@@ -173,6 +195,41 @@ function filterByRange(pts: CleanPoint[]): CleanPoint[] {
   const end = new Date(dateRange.value[1]).getTime()
   return pts.filter(p => p.created_at >= start && p.created_at <= end)
 }
+
+/** T+0 相对窗（小时） */
+function t0WindowHours(): { startH: number; endH: number; showAll: boolean } {
+  const mul = t0Unit.value === 'day' ? 24 : 1
+  return {
+    startH: Math.max(0, t0Start.value * mul),
+    endH: Math.max(0, t0End.value * mul),
+    showAll: t0ShowAll.value,
+  }
+}
+
+function setT0Preset(startH: number, endH: number) {
+  t0Unit.value = 'hour'
+  t0Start.value = startH
+  t0End.value = endH
+  t0ShowAll.value = false
+}
+
+const t0StartLabel = computed(() => {
+  const { startH } = t0WindowHours()
+  return t0Unit.value === 'day' ? `${t0Start.value}d` : `${startH}h`
+})
+const t0EndLabel = computed(() => {
+  const { endH } = t0WindowHours()
+  return t0Unit.value === 'day' ? `${t0End.value}d` : `${endH}h`
+})
+/** 默认窗下点数 = 窗长 / 间隔（桶个数） */
+const t0PointCountLabel = computed(() => {
+  const { startH, endH, showAll: all } = t0WindowHours()
+  if (all) return '全部'
+  const intervalH = chartGapMinutes.value / 60
+  const n = Math.max(0, Math.round((endH - startH) / intervalH))
+  return String(n)
+})
+
 function tagType(t: HistoryKind) {
   return ({ up: 'primary', video: 'success', dynamic: 'warning', column: 'info' } as const)[t] || 'info'
 }
@@ -224,6 +281,11 @@ const timeAxis = ref<'calendar' | 'relative'>('calendar')
 const chartGapMinutes = ref(60)
 const dateRange = ref<[string, string] | null>(null)
 const showAll = ref(true)
+/** T+0 相对时间窗：零点=各序列开始记录；单位可切换 */
+const t0Start = ref(0)
+const t0End = ref(48)
+const t0Unit = ref<'hour' | 'day'>('hour')
+const t0ShowAll = ref(false)
 const logMode = ref(false)
 const showAvgLine = ref(false)
 const showTrend = ref(false)
@@ -382,76 +444,127 @@ const chartCategories = computed(() => {
 const chartSeries = computed(() => {
   const list = targets.value
   const fieldOf = (t: CompareTarget) => METRIC_FIELD[metricKey.value]?.[t.type]
+  const isRel = timeAxis.value === 'relative'
+  const intervalMin = chartGapMinutes.value
+  const bucketMs = Math.max(1, intervalMin) * 60 * 1000
+  const win = t0WindowHours()
+
   const timesList: number[][] = []
   const valuesList: number[][] = []
   const metaList: { origIdx: number; axis: number; name: string; fullName: string; color: string }[] = []
   const usedNames = new Set<string>()
 
+  /** T+0：相对网格 → 可选增量 → 相对窗截断 → scale（first=窗内首有效点） */
+  function buildRelativeSeries(pts: CleanPoint[], field: string): { ts: number[]; vs: (number | null)[] } | null {
+    const rel = resampleRelativeSeries(pts, field, intervalMin)
+    if (!rel) return null
+    let ts = rel.times
+    let vs: (number | null)[] = rel.values
+    if (histMode.value === 'delta') {
+      vs = buildDeltaOnRelative(vs)
+    }
+    if (!win.showAll) {
+      const startMs = win.startH * 3600000
+      const endMs = win.endH * 3600000
+      const keepIdx: number[] = []
+      ts.forEach((t, i) => {
+        if (t >= startMs && t <= endMs) keepIdx.push(i)
+      })
+      ts = keepIdx.map(i => ts[i])
+      vs = keepIdx.map(i => vs[i]!)
+    }
+    const scaled = applyScale(vs as (number | null)[])
+    return { ts, vs: scaled }
+  }
+
+  /** 日历：绝对重采样 + 既有管线 */
+  function buildCalendarSeries(pts: CleanPoint[], field: string): { ts: number[]; vs: (number | null)[] } {
+    const rs = resampleByInterval(pts, intervalMin)
+    let ts = rs.map(p => p.created_at)
+    let vs: (number | null)[] = rs.map(p => Number(p[field] ?? 0))
+    if (histMode.value === 'delta') {
+      vs = buildDelta(vs as number[], ts, intervalMin)
+      ts = ts.slice(1)
+    }
+    return { ts, vs: applyScale(vs) }
+  }
+
   list.forEach((t, i) => {
     const field = fieldOf(t)
-    const ranged = filterByRange(seriesRaw.value[seriesKey(t)] || [])
+    // T+0 不做日历过滤；日历模式用 dateRange
+    const ranged = isRel
+      ? (seriesRaw.value[seriesKey(t)] || [])
+      : filterByRange(seriesRaw.value[seriesKey(t)] || [])
     if (field && ranged.length) {
-      const pts = resampleByInterval(ranged, chartGapMinutes.value)
-      let ts = pts.map(p => p.created_at)
-      let vs = pts.map(p => Number(p[field] ?? 0))
-      if (histMode.value === 'delta') {
-        vs = buildDelta(vs, ts, chartGapMinutes.value) as number[]
-        ts = ts.slice(1)
+      const built = isRel ? buildRelativeSeries(ranged, field) : buildCalendarSeries(ranged, field)
+      if (built && built.ts.length) {
+        timesList.push(built.ts)
+        valuesList.push(built.vs as number[])
+        const shortBase = `${typeLabel(t.type)}·${shortName(t.name || t.target)}`
+        metaList.push({
+          origIdx: i,
+          axis: 0,
+          name: uniqueSeriesName(shortBase, usedNames, t.target),
+          fullName: `${typeLabel(t.type)}·${t.name || t.target}`,
+          color: COLORS[i % COLORS.length],
+        })
       }
-      vs = applyScale(vs) as number[]
-      timesList.push(ts)
-      valuesList.push(vs as number[])
-      const shortBase = `${typeLabel(t.type)}·${shortName(t.name || t.target)}`
-      metaList.push({
-        origIdx: i,
-        axis: 0,
-        name: uniqueSeriesName(shortBase, usedNames, t.target),
-        fullName: `${typeLabel(t.type)}·${t.name || t.target}`,
-        color: COLORS[i % COLORS.length],
-      })
     }
     // 叠加分P：仅视频；与主指标同一时间对齐流程，挂第三轴，不做 scale 变换
     if (overlayPage.value && metricKey.value !== 'page' && t.type === 'video' && ranged.length) {
-      const pts = resampleByInterval(ranged, chartGapMinutes.value)
-      let ts = pts.map(p => p.created_at)
-      let vs = pts.map(p => Number(p.page_count ?? 0))
-      if (histMode.value === 'delta') {
-        vs = buildDelta(vs, ts, chartGapMinutes.value) as number[]
-        ts = ts.slice(1)
+      let ts: number[] = []
+      let vs: (number | null)[] = []
+      if (isRel) {
+        const rel = resampleRelativeSeries(ranged, 'page_count', intervalMin)
+        if (rel) {
+          ts = rel.times
+          vs = histMode.value === 'delta' ? buildDeltaOnRelative(rel.values) : rel.values
+          if (!win.showAll) {
+            const startMs = win.startH * 3600000
+            const endMs = win.endH * 3600000
+            const keepIdx: number[] = []
+            ts.forEach((tt, ii) => { if (tt >= startMs && tt <= endMs) keepIdx.push(ii) })
+            ts = keepIdx.map(ii => ts[ii])
+            vs = keepIdx.map(ii => vs[ii]!)
+          }
+        }
+      } else {
+        const rs = resampleByInterval(ranged, intervalMin)
+        ts = rs.map(p => p.created_at)
+        vs = rs.map(p => Number(p.page_count ?? 0))
+        if (histMode.value === 'delta') {
+          vs = buildDelta(vs as number[], ts, intervalMin)
+          ts = ts.slice(1)
+        }
       }
-      timesList.push(ts)
-      valuesList.push(vs as number[])
-      const shortBase = `分P·${shortName(t.name || t.target)}`
-      metaList.push({
-        origIdx: i,
-        axis: 2,
-        name: uniqueSeriesName(shortBase, usedNames, t.target),
-        fullName: `分P·${t.name || t.target}`,
-        color: COLORS[i % COLORS.length],
-      })
+      if (ts.length) {
+        timesList.push(ts)
+        valuesList.push(vs as number[])
+        const shortBase = `分P·${shortName(t.name || t.target)}`
+        metaList.push({
+          origIdx: i,
+          axis: 2,
+          name: uniqueSeriesName(shortBase, usedNames, t.target),
+          fullName: `分P·${t.name || t.target}`,
+          color: COLORS[i % COLORS.length],
+        })
+      }
     }
   })
 
-  // T+0：各序列自身首点为 T0，按重采样间隔做相对时间桶对齐（起点对齐，避免相位错位扯断曲线）
-  // 日历：按绝对时间槽对齐
-  const bucketMs = Math.max(1, chartGapMinutes.value) * 60 * 1000
-  const { slots, aligned } = timeAxis.value === 'relative'
-    ? alignByRelativeBuckets(
-        timesList.map(ts => (ts.length ? ts.map(t => t - ts[0]) : ts)),
-        valuesList,
-        bucketMs,
-      )
+  // 对齐：T+0 各序列已是相对网格，再按 interval 分桶对齐；日历用绝对时间槽
+  const { slots: slotsFinal, aligned: alignedFinal } = isRel
+    ? alignByRelativeBuckets(timesList, valuesList, bucketMs)
     : alignByTimeSlots(timesList, valuesList, ALIGN_TOLERANCE_MS)
+
   alignedCache.value = {
-    categories: timeAxis.value === 'relative'
-      ? formatRelativeSlots(slots)
-      : formatSmartTimestamps(slots),
-    slots,
+    categories: isRel ? formatRelativeSlots(slotsFinal) : formatSmartTimestamps(slotsFinal),
+    slots: slotsFinal,
   }
   return metaList.map((m, j) => ({
     name: m.name,
     fullName: m.fullName,
-    values: aligned[j] || [],
+    values: alignedFinal[j] || [],
     color: m.color,
     yAxisIndex: m.axis,
     showLabel: false,
