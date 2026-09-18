@@ -39,7 +39,8 @@
         </div>
       </div>
 
-      <div class="compare-toolbar2">
+      <!-- 行2：时间选择器独立一行 -->
+      <div class="compare-toolbar-row">
         <!-- 日历模式：绝对时间范围 -->
         <div class="date-range" v-if="timeAxis === 'calendar'">
           <el-date-picker
@@ -76,28 +77,52 @@
           <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 168)">前7天</el-button>
           <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="t0ShowAll = !t0ShowAll">{{ t0ShowAll ? '限窗' : '全部' }}</el-button>
         </div>
-        <div class="target-chips">
-          <el-tag
-            v-for="t in targets"
-            :key="t.type + ':' + t.target"
-            closable
-            @close="onRemove(t)"
-          >
-            {{ typeLabel(t.type) }}·{{ shortName(t.name || t.target) }}
-          </el-tag>
-          <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
-          <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
-        </div>
+      </div>
+
+      <!-- 行3：对比目标列表独立一行 -->
+      <div class="compare-toolbar-row target-chips">
+        <el-tag
+          v-for="t in targets"
+          :key="t.type + ':' + t.target"
+          closable
+          @close="onRemove(t)"
+          :title="t.name || t.target"
+        >
+          {{ typeLabel(t.type) }}·{{ displayAliasOrName(t) }}
+        </el-tag>
+        <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
+        <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
       </div>
 
       <div v-if="cards.length" class="compare-cards">
         <div v-for="c in cards" :key="c.key" class="compare-card">
           <div style="display: flex; justify-content: space-between; gap: 6px; align-items: flex-start">
-            <div style="min-width: 0">
+            <div style="min-width: 0; flex: 1">
               <el-tag size="small" :type="tagType(c.type)">{{ typeLabel(c.type) }}</el-tag>
               <div class="name" :title="c.name">{{ c.name }}</div>
             </div>
             <el-button size="small" text @click="openDetail(c)">详情</el-button>
+          </div>
+          <div class="alias-row">
+            <span class="alias-label">别名</span>
+            <template v-if="editingAliasKey === c.key">
+              <el-input
+                v-model="editingAliasValue"
+                size="small"
+                :maxlength="20"
+                placeholder="图例名，空=清除"
+                style="flex: 1; min-width: 0"
+                @keyup.enter="confirmAlias(c)"
+                @keyup.esc="cancelAlias"
+              />
+              <el-button size="small" type="primary" text @click="confirmAlias(c)">存</el-button>
+              <el-button size="small" text @click="cancelAlias">取消</el-button>
+            </template>
+            <template v-else>
+              <span class="alias-value" :title="aliasMap[c.key] || ''">{{ aliasMap[c.key] || '未设置' }}</span>
+              <el-button size="small" text type="primary" @click="startEditAlias(c)">{{ aliasMap[c.key] ? '修改' : '设置' }}</el-button>
+              <el-button v-if="aliasMap[c.key]" size="small" text type="danger" @click="clearAlias(c)">清除</el-button>
+            </template>
           </div>
           <div class="metrics" v-if="c.summary">
             <span v-for="(v, k) in c.summary" :key="k">{{ k }} {{ v }}</span>
@@ -157,6 +182,7 @@ import { formatNum, formatTimestamp, formatSmartTimestamps } from '../utils/form
 import {
   loadCompareTargets, saveCompareTargets, removeCompareTarget, clearCompareTargets,
   parseCompareQuery, encodeCompareQuery, COMPARE_MAX,
+  loadAliasMap, setCompareAlias, clearCompareAlias,
 } from '../utils/compareStore'
 import {
   dedupeNearDuplicates, resampleByInterval, alignByTimeSlots, alignByRelativeBuckets,
@@ -273,6 +299,55 @@ const loading = ref(false)
 const targets = ref<CompareTarget[]>([])
 const seriesRaw = ref<Record<string, CleanPoint[]>>({})
 const cards = ref<{ key: string; type: HistoryKind; target: string; name: string; summary?: Record<string, string>; delta24h?: string }[]>([])
+
+/** 当前登录用户名（别名按账号分桶） */
+const currentUsername = ref('')
+/** aliasMap: "type:target" -> alias */
+const aliasMap = ref<Record<string, string>>({})
+const editingAliasKey = ref<string | null>(null)
+const editingAliasValue = ref('')
+
+function aliasId(type: HistoryKind | string, target: string) {
+  return `${type}:${target}`
+}
+
+function displayAliasOrName(t: { type: HistoryKind; target: string; name?: string }) {
+  const alias = aliasMap.value[aliasId(t.type, t.target)]
+  return alias || shortName(t.name || t.target)
+}
+
+function startEditAlias(c: { key: string }) {
+  editingAliasKey.value = c.key
+  editingAliasValue.value = aliasMap.value[c.key] || ''
+}
+
+function cancelAlias() {
+  editingAliasKey.value = null
+  editingAliasValue.value = ''
+}
+
+function confirmAlias(c: { key: string; type: HistoryKind; target: string }) {
+  aliasMap.value = setCompareAlias(currentUsername.value, c.type, c.target, editingAliasValue.value)
+  cancelAlias()
+}
+
+function clearAlias(c: { key: string; type: HistoryKind; target: string }) {
+  aliasMap.value = clearCompareAlias(currentUsername.value, c.type, c.target)
+  cancelAlias()
+}
+
+function seriesDisplayBase(t: CompareTarget, prefix = '') {
+  const alias = aliasMap.value[aliasId(t.type, t.target)]
+  const base = alias || shortName(t.name || t.target)
+  return prefix ? `${prefix}·${base}` : `${typeLabel(t.type)}·${base}`
+}
+
+function seriesFullName(t: CompareTarget, prefix = '') {
+  const alias = aliasMap.value[aliasId(t.type, t.target)]
+  const origin = t.name || t.target
+  const label = alias ? `${alias}（${origin}）` : origin
+  return prefix ? `${prefix}·${label}` : `${typeLabel(t.type)}·${label}`
+}
 
 const metricKey = ref('traffic')
 const histMode = ref<'raw' | 'delta'>('raw')
@@ -500,12 +575,11 @@ const chartSeries = computed(() => {
       if (built && built.ts.length) {
         timesList.push(built.ts)
         valuesList.push(built.vs as number[])
-        const shortBase = `${typeLabel(t.type)}·${shortName(t.name || t.target)}`
         metaList.push({
           origIdx: i,
           axis: 0,
-          name: uniqueSeriesName(shortBase, usedNames, t.target),
-          fullName: `${typeLabel(t.type)}·${t.name || t.target}`,
+          name: uniqueSeriesName(seriesDisplayBase(t), usedNames, t.target),
+          fullName: seriesFullName(t),
           color: COLORS[i % COLORS.length],
         })
       }
@@ -540,12 +614,11 @@ const chartSeries = computed(() => {
       if (ts.length) {
         timesList.push(ts)
         valuesList.push(vs as number[])
-        const shortBase = `分P·${shortName(t.name || t.target)}`
         metaList.push({
           origIdx: i,
           axis: 2,
-          name: uniqueSeriesName(shortBase, usedNames, t.target),
-          fullName: `分P·${t.name || t.target}`,
+          name: uniqueSeriesName(seriesDisplayBase(t, '分P'), usedNames, t.target),
+          fullName: seriesFullName(t, '分P'),
           color: COLORS[i % COLORS.length],
         })
       }
@@ -634,6 +707,16 @@ watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes], () => {
 })
 
 onMounted(async () => {
+  // 别名按账号分桶：优先 auth/check，失败则用缓存用户名
+  try {
+    const auth = await monitorApi.checkAuth()
+    currentUsername.value = auth?.username || localStorage.getItem('bili_username') || '__anon__'
+    if (auth?.username) localStorage.setItem('bili_username', auth.username)
+  } catch {
+    currentUsername.value = localStorage.getItem('bili_username') || '__anon__'
+  }
+  aliasMap.value = loadAliasMap(currentUsername.value)
+
   const fromUrl = parseCompareQuery(route.query.ids as string)
   if (fromUrl.length) {
     targets.value = fromUrl.slice(0, COMPARE_MAX)
@@ -656,13 +739,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.compare-toolbar2 {
+.compare-toolbar-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  min-height: 28px;
 }
 .date-range {
   display: flex;
@@ -678,7 +761,7 @@ onMounted(async () => {
 }
 .compare-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -692,6 +775,27 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 13px;
   margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compare-card .alias-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+.compare-card .alias-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.compare-card .alias-value {
+  font-size: 12px;
+  color: var(--text);
+  max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

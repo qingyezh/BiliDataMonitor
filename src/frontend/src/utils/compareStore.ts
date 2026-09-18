@@ -2,6 +2,7 @@
 import type { CompareTarget, HistoryKind } from '../api/monitor'
 
 const KEY = 'bili_compare_targets'
+const ALIAS_KEY = 'bili_compare_alias_v1'
 export const COMPARE_MAX = 6
 
 export function loadCompareTargets(): CompareTarget[] {
@@ -71,4 +72,76 @@ export function parseCompareQuery(ids: string | undefined | null): CompareTarget
       return { type, target, name: target }
     })
     .filter(Boolean) as CompareTarget[]
+}
+
+// ── 对比条目别名：localStorage，按登录账号分桶 ──
+
+export const ALIAS_MAX_LEN = 20
+const ANON_USER = '__anon__'
+
+function aliasKey(type: HistoryKind | string, target: string): string {
+  return `${type}:${target}`
+}
+
+function loadAliasRoot(): Record<string, Record<string, string>> {
+  try {
+    const raw = localStorage.getItem(ALIAS_KEY)
+    if (!raw) return {}
+    const data = JSON.parse(raw)
+    return data && typeof data === 'object' ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveAliasRoot(data: Record<string, Record<string, string>>): void {
+  localStorage.setItem(ALIAS_KEY, JSON.stringify(data))
+}
+
+/** 读取当前账号下的别名表 */
+export function loadAliasMap(username: string | null | undefined): Record<string, string> {
+  const u = username || ANON_USER
+  const map = loadAliasRoot()[u]
+  return map && typeof map === 'object' ? { ...map } : {}
+}
+
+/** 设置别名；alias 空白/空串 = 清除 */
+export function setCompareAlias(
+  username: string | null | undefined,
+  type: HistoryKind | string,
+  target: string,
+  alias: string | null | undefined
+): Record<string, string> {
+  const u = username || ANON_USER
+  const data = loadAliasRoot()
+  if (!data[u] || typeof data[u] !== 'object') data[u] = {}
+  const key = aliasKey(type, target)
+  const trimmed = (alias ?? '').trim().slice(0, ALIAS_MAX_LEN)
+  if (!trimmed) {
+    delete data[u][key]
+  } else {
+    data[u][key] = trimmed
+  }
+  saveAliasRoot(data)
+  return { ...data[u] }
+}
+
+export function clearCompareAlias(
+  username: string | null | undefined,
+  type: HistoryKind | string,
+  target: string
+): Record<string, string> {
+  return setCompareAlias(username, type, target, '')
+}
+
+export function getCompareAlias(
+  username: string | null | undefined,
+  type: HistoryKind | string,
+  target: string
+): string {
+  return loadAliasMap(username)[aliasKey(type, target)] || ''
+}
+
+export function compareAliasId(type: HistoryKind | string, target: string): string {
+  return aliasKey(type, target)
 }
