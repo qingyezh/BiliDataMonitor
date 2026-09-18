@@ -106,6 +106,7 @@
       </div>
       <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
         时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟
+        <template v-if="timeAxis === 'relative'"> · T+0：各序列起点对齐</template>
         <template v-if="histMode === 'delta'"> · 增量：相邻有效点差值，跨度过大断线</template>
         <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
         <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
@@ -431,10 +432,18 @@ const chartSeries = computed(() => {
     }
   })
 
-  const { slots, aligned } = alignByTimeSlots(timesList, valuesList, ALIGN_TOLERANCE_MS)
+  // T+0：各序列以自身首点为 T0，用相对时间做起点对齐（数组头部对齐）
+  // 日历：按绝对时间槽对齐
+  const { slots, aligned } = timeAxis.value === 'relative'
+    ? alignByTimeSlots(
+        timesList.map(ts => (ts.length ? ts.map(t => t - ts[0]) : ts)),
+        valuesList,
+        ALIGN_TOLERANCE_MS,
+      )
+    : alignByTimeSlots(timesList, valuesList, ALIGN_TOLERANCE_MS)
   alignedCache.value = {
     categories: timeAxis.value === 'relative'
-      ? formatRelativeSlots(slots, list, list.map((_, i) => i))
+      ? formatRelativeSlots(slots)
       : formatSmartTimestamps(slots),
     slots,
   }
@@ -450,16 +459,10 @@ const chartSeries = computed(() => {
 
 const alignedCache = ref<{ categories: string[]; slots: number[] }>({ categories: [], slots: [] })
 
-function formatRelativeSlots(slots: number[], list: CompareTarget[], validIdx: number[]): string[] {
-  // 以最早 first point 为 T0 的近似：取各序列首时间最小值
-  let t0 = Infinity
-  validIdx.forEach(i => {
-    const pts = seriesRaw.value[seriesKey(list[i])] || []
-    if (pts.length) t0 = Math.min(t0, pts[0].created_at)
-  })
-  if (!Number.isFinite(t0)) t0 = slots[0] || 0
+/** slots 已是相对时间（ms），直接格式化为 T+ */
+function formatRelativeSlots(slots: number[]): string[] {
   return slots.map(t => {
-    const h = (t - t0) / 3600000
+    const h = Math.max(0, t) / 3600000
     return h < 24 ? `T+${h.toFixed(1)}h` : `T+${(h / 24).toFixed(1)}d`
   })
 }
