@@ -106,7 +106,7 @@
       </div>
       <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
         时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟
-        <template v-if="timeAxis === 'relative'"> · T+0：各序列起点对齐</template>
+        <template v-if="timeAxis === 'relative'"> · T+0：各序列起点对齐，按 {{ chartGapMinutes }} 分钟桶对齐</template>
         <template v-if="histMode === 'delta'"> · 增量：相邻有效点差值，跨度过大断线</template>
         <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
         <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
@@ -138,7 +138,7 @@ import {
   parseCompareQuery, encodeCompareQuery, COMPARE_MAX,
 } from '../utils/compareStore'
 import {
-  dedupeNearDuplicates, resampleByInterval, alignByTimeSlots,
+  dedupeNearDuplicates, resampleByInterval, alignByTimeSlots, alignByRelativeBuckets,
   DUPLICATE_MERGE_MS, ALIGN_TOLERANCE_MS, type CleanPoint,
 } from '../utils/historyClean'
 import katex from 'katex'
@@ -432,13 +432,14 @@ const chartSeries = computed(() => {
     }
   })
 
-  // T+0：各序列以自身首点为 T0，用相对时间做起点对齐（数组头部对齐）
+  // T+0：各序列自身首点为 T0，按重采样间隔做相对时间桶对齐（起点对齐，避免相位错位扯断曲线）
   // 日历：按绝对时间槽对齐
+  const bucketMs = Math.max(1, chartGapMinutes.value) * 60 * 1000
   const { slots, aligned } = timeAxis.value === 'relative'
-    ? alignByTimeSlots(
+    ? alignByRelativeBuckets(
         timesList.map(ts => (ts.length ? ts.map(t => t - ts[0]) : ts)),
         valuesList,
-        ALIGN_TOLERANCE_MS,
+        bucketMs,
       )
     : alignByTimeSlots(timesList, valuesList, ALIGN_TOLERANCE_MS)
   alignedCache.value = {

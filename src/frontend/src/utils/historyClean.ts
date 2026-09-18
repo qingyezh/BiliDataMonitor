@@ -110,3 +110,34 @@ export function alignByTimeSlots(
   })
   return { slots, aligned }
 }
+
+/**
+ * 起点对齐（T+0）：seriesTimes 应为相对时间（各序列自身首点 = 0）。
+ * 按 bucketMs 分桶（而非 20s 容差），避免不同序列采样相位导致重合区大量 null。
+ * 同桶同系列取最后一点；slots 为桶起点。
+ */
+export function alignByRelativeBuckets(
+  seriesTimes: number[][],
+  seriesValues: number[][],
+  bucketMs: number
+): { slots: number[]; aligned: (number | null)[][] } {
+  const bucket = Math.max(1000, bucketMs)
+  const keysSet = new Set<number>()
+  const seriesMaps = seriesTimes.map((ts, si) => {
+    const m = new Map<number, number>()
+    ts.forEach((t, i) => {
+      const v = seriesValues[si]?.[i]
+      if (v === null || v === undefined || Number.isNaN(v)) return
+      const key = Math.floor(Math.max(0, t) / bucket)
+      m.set(key, v)
+      keysSet.add(key)
+    })
+    return m
+  })
+  if (!keysSet.size) return { slots: [], aligned: seriesTimes.map(() => []) }
+  const keys = [...keysSet].sort((a, b) => a - b)
+  return {
+    slots: keys.map(k => k * bucket),
+    aligned: seriesMaps.map(m => keys.map(k => (m.has(k) ? m.get(k)! : null))),
+  }
+}
