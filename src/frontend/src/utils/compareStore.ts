@@ -3,7 +3,26 @@ import type { CompareTarget, HistoryKind } from '../api/monitor'
 
 const KEY = 'bili_compare_targets'
 const ALIAS_KEY = 'bili_compare_alias_v1'
+const UI_KEY = 'bili_compare_ui_v1'
 export const COMPARE_MAX = 6
+
+export interface CompareUiSettings {
+  metricKey?: string
+  histMode?: 'raw' | 'delta'
+  scaleMode?: 'abs' | 'growth' | 'index'
+  timeAxis?: 'calendar' | 'relative'
+  chartGapMinutes?: number
+  logMode?: boolean
+  showAvgLine?: boolean
+  showTrend?: boolean
+  overlayPage?: boolean
+  showAll?: boolean
+  dateRange?: [string, string] | null
+  t0Start?: number
+  t0End?: number
+  t0Unit?: 'hour' | 'day'
+  t0ShowAll?: boolean
+}
 
 export function loadCompareTargets(): CompareTarget[] {
   try {
@@ -144,4 +163,34 @@ export function getCompareAlias(
 
 export function compareAliasId(type: HistoryKind | string, target: string): string {
   return aliasKey(type, target)
+}
+
+// ── 对比页工具栏设置：localStorage，按账号分桶，刷新不丢 ──
+
+function uiUserKey(username: string | null | undefined): string {
+  return username || '__anon__'
+}
+
+export function loadCompareUiSettings(username: string | null | undefined): CompareUiSettings | null {
+  try {
+    const raw = localStorage.getItem(UI_KEY)
+    if (!raw) return null
+    const root = JSON.parse(raw)
+    const data = root?.[uiUserKey(username)]
+    return data && typeof data === 'object' ? data : null
+  } catch {
+    return null
+  }
+}
+
+export function saveCompareUiSettings(username: string | null | undefined, settings: CompareUiSettings): void {
+  try {
+    const raw = localStorage.getItem(UI_KEY)
+    const root = raw ? JSON.parse(raw) : {}
+    const u = uiUserKey(username)
+    root[u] = { ...(root[u] || {}), ...settings }
+    localStorage.setItem(UI_KEY, JSON.stringify(root))
+  } catch {
+    /* 忽略配额/隐私模式错误 */
+  }
 }

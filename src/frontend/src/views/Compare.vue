@@ -198,6 +198,7 @@ import {
   loadCompareTargets, saveCompareTargets, removeCompareTarget, clearCompareTargets,
   parseCompareQuery, encodeCompareQuery, COMPARE_MAX,
   loadAliasMap, setCompareAlias, clearCompareAlias,
+  loadCompareUiSettings, saveCompareUiSettings,
 } from '../utils/compareStore'
 import {
   dedupeNearDuplicates, resampleByInterval, alignByTimeSlots, alignByRelativeBuckets,
@@ -717,12 +718,60 @@ function savePng() {
   chartRef.value?.saveChart()
 }
 
-watch([metricKey, histMode, scaleMode, timeAxis, chartGapMinutes], () => {
-  syncUrl()
-})
+function collectUiSettings() {
+  return {
+    metricKey: metricKey.value,
+    histMode: histMode.value,
+    scaleMode: scaleMode.value,
+    timeAxis: timeAxis.value,
+    chartGapMinutes: chartGapMinutes.value,
+    logMode: logMode.value,
+    showAvgLine: showAvgLine.value,
+    showTrend: showTrend.value,
+    overlayPage: overlayPage.value,
+    showAll: showAll.value,
+    dateRange: dateRange.value,
+    t0Start: t0Start.value,
+    t0End: t0End.value,
+    t0Unit: t0Unit.value,
+    t0ShowAll: t0ShowAll.value,
+  }
+}
+
+function applyUiSettings(s: NonNullable<ReturnType<typeof loadCompareUiSettings>>) {
+  if (s.metricKey) metricKey.value = s.metricKey
+  if (s.histMode === 'raw' || s.histMode === 'delta') histMode.value = s.histMode
+  if (s.scaleMode === 'abs' || s.scaleMode === 'growth' || s.scaleMode === 'index') scaleMode.value = s.scaleMode
+  if (s.timeAxis === 'calendar' || s.timeAxis === 'relative') timeAxis.value = s.timeAxis
+  if (typeof s.chartGapMinutes === 'number' && s.chartGapMinutes > 0) chartGapMinutes.value = s.chartGapMinutes
+  if (typeof s.logMode === 'boolean') logMode.value = s.logMode
+  if (typeof s.showAvgLine === 'boolean') showAvgLine.value = s.showAvgLine
+  if (typeof s.showTrend === 'boolean') showTrend.value = s.showTrend
+  if (typeof s.overlayPage === 'boolean') overlayPage.value = s.overlayPage
+  if (typeof s.showAll === 'boolean') showAll.value = s.showAll
+  if (Array.isArray(s.dateRange) && s.dateRange.length === 2) dateRange.value = s.dateRange as [string, string]
+  else if (s.dateRange === null) dateRange.value = null
+  if (typeof s.t0Start === 'number') t0Start.value = s.t0Start
+  if (typeof s.t0End === 'number') t0End.value = s.t0End
+  if (s.t0Unit === 'hour' || s.t0Unit === 'day') t0Unit.value = s.t0Unit
+  if (typeof s.t0ShowAll === 'boolean') t0ShowAll.value = s.t0ShowAll
+}
+
+watch(
+  [
+    metricKey, histMode, scaleMode, timeAxis, chartGapMinutes,
+    logMode, showAvgLine, showTrend, overlayPage,
+    showAll, dateRange, t0Start, t0End, t0Unit, t0ShowAll,
+  ],
+  () => {
+    syncUrl()
+    saveCompareUiSettings(currentUsername.value, collectUiSettings())
+  },
+  { deep: true }
+)
 
 onMounted(async () => {
-  // 别名按账号分桶：优先 auth/check，失败则用缓存用户名
+  // 别名/设置按账号分桶：优先 auth/check，失败则用缓存用户名
   try {
     const auth = await monitorApi.checkAuth()
     currentUsername.value = auth?.username || localStorage.getItem('bili_username') || '__anon__'
@@ -732,6 +781,10 @@ onMounted(async () => {
   }
   aliasMap.value = loadAliasMap(currentUsername.value)
 
+  // 1) 先恢复本地缓存的工具栏设置（不清缓存则刷新不丢）
+  const savedUi = loadCompareUiSettings(currentUsername.value)
+  if (savedUi) applyUiSettings(savedUi)
+
   const fromUrl = parseCompareQuery(route.query.ids as string)
   if (fromUrl.length) {
     targets.value = fromUrl.slice(0, COMPARE_MAX)
@@ -739,12 +792,14 @@ onMounted(async () => {
   } else {
     targets.value = loadCompareTargets()
   }
+  // 2) URL 参数优先覆盖本地缓存（分享链接仍生效）
   if (route.query.metric) metricKey.value = String(route.query.metric)
   if (route.query.mode === 'delta' || route.query.mode === 'raw') histMode.value = route.query.mode
   if (route.query.scale) scaleMode.value = route.query.scale as any
   if (route.query.axis === 'relative' || route.query.axis === 'calendar') timeAxis.value = route.query.axis
   if (route.query.interval) chartGapMinutes.value = Number(route.query.interval) || 60
   if (route.query.log === '1') logMode.value = true
+
   if (!targets.value.length) {
     ElMessage.info('请先在列表或详情页添加对比目标')
   } else {
