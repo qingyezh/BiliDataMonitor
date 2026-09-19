@@ -12,18 +12,19 @@
 
         <span class="toolbar-sep" aria-hidden="true" />
 
-        <el-radio-group v-model="histMode" size="small">
-          <el-radio-button value="raw">原始值</el-radio-button>
-          <el-radio-button value="delta">增量</el-radio-button>
-        </el-radio-group>
-
-        <span class="toolbar-sep" aria-hidden="true" />
-
+        <!-- 标度在前，原始/增量在后 -->
         <el-select v-model="scaleMode" size="small" style="width: 100px" title="数值标度">
           <el-option label="绝对值" value="abs" />
           <el-option label="增长率" value="growth" />
           <el-option label="指数100" value="index" />
         </el-select>
+
+        <span class="toolbar-sep" aria-hidden="true" />
+
+        <el-radio-group v-model="histMode" size="small">
+          <el-radio-button value="raw">原始值</el-radio-button>
+          <el-radio-button value="delta">增量</el-radio-button>
+        </el-radio-group>
 
         <span class="toolbar-sep" aria-hidden="true" />
 
@@ -40,20 +41,21 @@
 
         <span class="toolbar-sep" aria-hidden="true" />
 
-        <!-- 日历 / T+0 时间选择器（模式控件右侧） -->
         <template v-if="timeAxis === 'calendar'">
-          <el-date-picker
-            v-model="dateRange"
-            type="datetimerange"
-            size="small"
-            range-separator="~"
-            start-placeholder="开始"
-            end-placeholder="结束"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            format="MM/DD HH:mm"
-            :style="{ width: DATE_RANGE_WIDTH + 'px' }"
-            class="date-range-compact"
-          />
+          <div class="date-range-wrap">
+            <el-date-picker
+              v-model="dateRange"
+              type="datetimerange"
+              size="small"
+              range-separator="~"
+              start-placeholder="开始"
+              end-placeholder="结束"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              format="MM/DD HH:mm"
+              class="date-range-compact"
+              style="width: 100%"
+            />
+          </div>
           <el-button
             size="small"
             style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff"
@@ -309,7 +311,7 @@ const GAP_MINUTE_OPTIONS = [
   { label: '6小时', value: 360 },
   { label: '24小时', value: 1440 },
 ]
-/** 日历范围选择器总宽（含输入框与分隔符） */
+/** 日历范围选择器总宽 */
 const DATE_RANGE_WIDTH = 220
 
 /** 语义指标 → 各类型字段名；null 表示该类型无此指标 */
@@ -848,12 +850,26 @@ onMounted(async () => {
   flex-shrink: 0;
   margin: 0 2px;
 }
+.date-range-wrap {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+}
+.toolbar-main :deep(.date-range-compact.el-date-editor--datetimerange),
+.toolbar-main :deep(.date-range-compact.el-date-editor) {
+  width: 220px !important;
+  max-width: 220px;
+  flex: none;
+}
 .toolbar-main :deep(.date-range-compact .el-range-input) {
-  width: 72px;
+  width: 68px !important;
+  flex: none;
+  min-width: 0;
 }
 .toolbar-main :deep(.date-range-compact .el-range-separator) {
-  padding: 0 4px;
-  width: auto;
+  padding: 0 4px !important;
+  width: auto !important;
+  flex: none;
 }
 .compare-list {
   margin-bottom: 12px;
