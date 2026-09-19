@@ -123,16 +123,25 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="指标" min-width="160">
+          <el-table-column label="指标" min-width="200">
             <template #default="{ row }">
-              <span v-if="row.summary" class="metrics-inline">
-                <span v-for="(v, k) in row.summary" :key="k" class="metric-item">{{ k }} {{ v }}</span>
-              </span>
+              <div v-if="row.summary?.length" class="metrics-grid">
+                <div v-for="m in row.summary" :key="m.label" class="metrics-grid-row">
+                  <span class="metrics-grid-label">{{ m.label }}</span>
+                  <span class="metrics-grid-value">{{ m.value }}</span>
+                </div>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column label="24h增量" width="120" align="center">
+          <el-table-column label="24h增量" min-width="140" align="right">
             <template #default="{ row }">
-              <span style="color: #67c23a; font-weight: 600">{{ row.delta24h || '—' }}</span>
+              <div v-if="row.delta24?.length" class="metrics-grid metrics-grid--delta">
+                <div v-for="d in row.delta24" :key="d.label" class="metrics-grid-row">
+                  <span class="metrics-grid-label">{{ d.label }}</span>
+                  <span class="metrics-grid-value" :style="{ color: d.color }" :title="d.insuff ? '不足24h' : ''">{{ d.text }}</span>
+                </div>
+              </div>
+              <span v-else style="color: var(--text-secondary)">—</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="120" align="center">
@@ -336,7 +345,14 @@ const router = useRouter()
 const loading = ref(false)
 const targets = ref<CompareTarget[]>([])
 const seriesRaw = ref<Record<string, CleanPoint[]>>({})
-const cards = ref<{ key: string; type: HistoryKind; target: string; name: string; summary?: Record<string, string>; delta24h?: string }[]>([])
+const cards = ref<{
+  key: string
+  type: HistoryKind
+  target: string
+  name: string
+  summary?: { label: string; value: string }[]
+  delta24?: { label: string; text: string; color: string; insuff?: boolean }[]
+}[]>([])
 
 /** 当前登录用户名（别名按账号分桶） */
 const currentUsername = ref('')
@@ -457,22 +473,54 @@ async function fetchOne(t: CompareTarget): Promise<{ points: CleanPoint[]; name:
   }
 }
 
-function summarize(type: HistoryKind, meta: any): Record<string, string> | undefined {
-  if (!meta) return undefined
-  if (type === 'up') {
-    return { 播放: formatNum(meta.total_views), 弹幕: formatNum(meta.total_danmaku), 评论: formatNum(meta.total_comments) }
-  }
-  if (type === 'video') {
-    return { 播放: formatNum(meta.last_play ?? meta.play), 评论: formatNum(meta.sample_count != null ? meta.sample_count : 0) + '次' }
+/** 各类型的三项展示：播放/弹幕/评论 或 点赞/评论/转发|收藏 */
+function metricFieldsOf(type: HistoryKind): { label: string; key: string }[] {
+  if (type === 'up' || type === 'video') {
+    return [
+      { label: '播放', key: type === 'up' ? 'total_views' : 'play' },
+      { label: '弹幕', key: type === 'up' ? 'total_danmaku' : 'video_review' },
+      { label: '评论', key: type === 'up' ? 'total_comments' : 'comment' },
+    ]
   }
   if (type === 'dynamic') {
-    return { 点赞: formatNum(meta.like_count), 评论: formatNum(meta.reply_count), 转发: formatNum(meta.forward_count) }
+    return [
+      { label: '点赞', key: 'like_count' },
+      { label: '评论', key: 'reply_count' },
+      { label: '转发', key: 'forward_count' },
+    ]
   }
-  return { 点赞: formatNum(meta.like_count), 评论: formatNum(meta.reply_count), 收藏: formatNum(meta.favorite_count) }
+  return [
+    { label: '点赞', key: 'like_count' },
+    { label: '评论', key: 'reply_count' },
+    { label: '收藏', key: 'favorite_count' },
+  ]
 }
 
-function calcDelta24(points: CleanPoint[], field: string): string {
-  if (!points || points.length < 2) return ''
+/** 指标：优先用历史末点（三项齐全）；无历史时退回 meta */
+function summarize(type: HistoryKind, meta: any, points: CleanPoint[]): { label: string; value: string }[] {
+  const fields = metricFieldsOf(type)
+  const last = points?.length ? points[points.length - 1] : null
+  return fields.map(f => {
+    let n: number | null | undefined
+    if (last && last[f.key] !== undefined) n = Number(last[f.key])
+    else if (meta) {
+      if (type === 'up') {
+        n = f.key === 'total_views' ? meta.total_views : f.key === 'total_danmaku' ? meta.total_danmaku : meta.total_comments
+      } else if (type === 'video') {
+        n = f.key === 'play' ? (meta.last_play ?? meta.play) : undefined
+      } else {
+        n = meta[f.key]
+      }
+    }
+    return { label: f.label, value: n === null || n === undefined || Number.isNaN(n) ? '—' : formatNum(n) }
+  })
+}
+
+function calcDelta24Multi(points: CleanPoint[], type: HistoryKind): { label: string; text: string; color: string; insuff?: boolean }[] {
+  const fields = metricFieldsOf(type)
+  if (!points || points.length < 2) {
+    return fields.map(f => ({ label: f.label, text: '—', color: 'var(--text-secondary)' }))
+  }
   const last = points[points.length - 1]
   const targetTs = last.created_at - 24 * 3600 * 1000
   let best = points[0]
@@ -481,11 +529,19 @@ function calcDelta24(points: CleanPoint[], field: string): string {
     const d = Math.abs(points[i].created_at - targetTs)
     if (d < bestDiff) { bestDiff = d; best = points[i] }
   }
-  const delta = Number(last[field] || 0) - Number(best[field] || 0)
   const span = last.created_at - best.created_at
   const insuff = span < 24 * 3600 * 1000 * 0.95
-  const sign = delta > 0 ? '+' : ''
-  return `24h ${sign}${formatNum(delta)}${insuff ? '（不足24h）' : ''}`
+  return fields.map(f => {
+    const a = Number(best[f.key] ?? 0)
+    const b = Number(last[f.key] ?? 0)
+    if (best[f.key] === undefined || last[f.key] === undefined) {
+      return { label: f.label, text: '—', color: 'var(--text-secondary)', insuff }
+    }
+    const delta = b - a
+    const color = delta > 0 ? '#67c23a' : delta < 0 ? '#f56c6c' : 'var(--text-secondary)'
+    const sign = delta > 0 ? '+' : ''
+    return { label: f.label, text: `${sign}${formatNum(delta)}`, color, insuff }
+  })
 }
 
 async function reload() {
@@ -499,14 +555,13 @@ async function reload() {
       const k = seriesKey(t)
       raw[k] = results[i].points
       t.name = results[i].name
-      const field = METRIC_FIELD[metricKey.value]?.[t.type]
       nextCards.push({
         key: k,
         type: t.type,
         target: t.target,
         name: results[i].name,
-        summary: summarize(t.type, results[i].meta),
-        delta24h: field ? calcDelta24(results[i].points, field) : '',
+        summary: summarize(t.type, results[i].meta, results[i].points),
+        delta24: calcDelta24Multi(results[i].points, t.type),
       })
     })
     seriesRaw.value = raw
@@ -947,14 +1002,34 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.metrics-inline {
-  display: inline-flex;
-  flex-wrap: wrap;
+.metrics-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+.metrics-grid-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-secondary);
+  line-height: 1.4;
 }
-.metrics-inline .metric-item {
+.metrics-grid-label {
+  color: var(--text-secondary);
+  flex: 0 0 28px;
+  text-align: left;
+}
+.metrics-grid-value {
+  flex: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text);
   white-space: nowrap;
+}
+.metrics-grid--delta .metrics-grid-value {
+  font-weight: 600;
 }
 </style>
