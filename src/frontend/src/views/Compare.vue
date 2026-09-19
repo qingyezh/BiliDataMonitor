@@ -94,41 +94,56 @@
         <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
       </div>
 
-      <div v-if="cards.length" class="compare-cards">
-        <div v-for="c in cards" :key="c.key" class="compare-card">
-          <div style="display: flex; justify-content: space-between; gap: 6px; align-items: flex-start">
-            <div style="min-width: 0; flex: 1">
-              <el-tag size="small" :type="tagType(c.type)">{{ typeLabel(c.type) }}</el-tag>
-              <div class="name" :title="c.name">{{ c.name }}</div>
-            </div>
-            <el-button size="small" text @click="openDetail(c)">详情</el-button>
-          </div>
-          <div class="alias-row">
-            <span class="alias-label">别名</span>
-            <template v-if="editingAliasKey === c.key">
-              <el-input
-                v-model="editingAliasValue"
-                size="small"
-                :maxlength="20"
-                placeholder="图例名，空=清除"
-                style="flex: 1; min-width: 0"
-                @keyup.enter="confirmAlias(c)"
-                @keyup.esc="cancelAlias"
-              />
-              <el-button size="small" type="primary" text @click="confirmAlias(c)">存</el-button>
-              <el-button size="small" text @click="cancelAlias">取消</el-button>
+      <div v-if="cards.length" class="compare-list">
+        <el-table :data="cards" size="small" stripe>
+          <el-table-column label="类型" width="72" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="tagType(row.type)">{{ typeLabel(row.type) }}</el-tag>
             </template>
-            <template v-else>
-              <span class="alias-value" :title="aliasMap[c.key] || ''">{{ aliasMap[c.key] || '未设置' }}</span>
-              <el-button size="small" text type="primary" @click="startEditAlias(c)">{{ aliasMap[c.key] ? '修改' : '设置' }}</el-button>
-              <el-button v-if="aliasMap[c.key]" size="small" text type="danger" @click="clearAlias(c)">清除</el-button>
+          </el-table-column>
+          <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
+          <el-table-column label="别名" min-width="200">
+            <template #default="{ row }">
+              <div class="alias-cell">
+                <template v-if="editingAliasKey === row.key">
+                  <el-input
+                    v-model="editingAliasValue"
+                    size="small"
+                    :maxlength="20"
+                    placeholder="图例名，空=清除"
+                    style="width: 140px"
+                    @keyup.enter="confirmAlias(row)"
+                    @keyup.esc="cancelAlias"
+                  />
+                  <el-button size="small" type="primary" text @click="confirmAlias(row)">存</el-button>
+                  <el-button size="small" text @click="cancelAlias">取消</el-button>
+                </template>
+                <template v-else>
+                  <span class="alias-value" :title="aliasMap[row.key] || ''">{{ aliasMap[row.key] || '未设置' }}</span>
+                  <el-button size="small" text type="primary" @click="startEditAlias(row)">{{ aliasMap[row.key] ? '修改' : '设置' }}</el-button>
+                  <el-button v-if="aliasMap[row.key]" size="small" text type="danger" @click="clearAlias(row)">清除</el-button>
+                </template>
+              </div>
             </template>
-          </div>
-          <div class="metrics" v-if="c.summary">
-            <span v-for="(v, k) in c.summary" :key="k">{{ k }} {{ v }}</span>
-          </div>
-          <div class="delta" v-if="c.delta24h">{{ c.delta24h }}</div>
-        </div>
+          </el-table-column>
+          <el-table-column label="指标" min-width="160">
+            <template #default="{ row }">
+              <span v-if="row.summary" class="metrics-inline">
+                <span v-for="(v, k) in row.summary" :key="k" class="metric-item">{{ k }} {{ v }}</span>
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="24h增量" width="120" align="center">
+            <template #default="{ row }">
+              <span style="color: #67c23a; font-weight: 600">{{ row.delta24h || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" align="center">
+            <template #default="{ row }">
+              <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
 
       <div style="position: relative">
@@ -759,58 +774,32 @@ onMounted(async () => {
   gap: 8px;
   align-items: center;
 }
-.compare-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
+.compare-list {
   margin-bottom: 12px;
 }
-.compare-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: var(--bg);
-}
-.compare-card .name {
-  font-weight: 600;
-  font-size: 13px;
-  margin-top: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.compare-card .alias-row {
-  margin-top: 6px;
+.alias-cell {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
   min-height: 24px;
 }
-.compare-card .alias-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-.compare-card .alias-value {
+.alias-value {
   font-size: 12px;
   color: var(--text);
-  max-width: 96px;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.compare-card .metrics {
-  margin-top: 6px;
+.metrics-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 12px;
   color: var(--text-secondary);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
-.compare-card .delta {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #67c23a;
+.metrics-inline .metric-item {
+  white-space: nowrap;
 }
 </style>
