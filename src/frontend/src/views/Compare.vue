@@ -99,7 +99,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
-          <el-table-column label="别名" min-width="200">
+          <el-table-column label="别名" min-width="160">
             <template #default="{ row }">
               <div class="alias-cell">
                 <template v-if="editingAliasKey === row.key">
@@ -123,26 +123,36 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="指标" min-width="200">
-            <template #default="{ row }">
-              <div v-if="row.summary?.length" class="metrics-grid">
-                <div v-for="m in row.summary" :key="m.label" class="metrics-grid-row">
-                  <span class="metrics-grid-label">{{ m.label }}</span>
-                  <span class="metrics-grid-value">{{ m.value }}</span>
-                </div>
-              </div>
-            </template>
+          <!-- 多级表头：指标 / 24h增量 各三列子列名 -->
+          <el-table-column label="指标" align="center">
+            <el-table-column
+              v-for="(h, hi) in tableSubHeaders"
+              :key="'sum-' + hi"
+              :label="h"
+              align="right"
+              min-width="80"
+            >
+              <template #default="{ row }">
+                <span class="num-cell">{{ summaryAt(row, hi) }}</span>
+              </template>
+            </el-table-column>
           </el-table-column>
-          <el-table-column label="24h增量" min-width="140" align="right">
-            <template #default="{ row }">
-              <div v-if="row.delta24?.length" class="metrics-grid metrics-grid--delta">
-                <div v-for="d in row.delta24" :key="d.label" class="metrics-grid-row">
-                  <span class="metrics-grid-label">{{ d.label }}</span>
-                  <span class="metrics-grid-value" :style="{ color: d.color }" :title="d.insuff ? '不足24h' : ''">{{ d.text }}</span>
-                </div>
-              </div>
-              <span v-else style="color: var(--text-secondary)">—</span>
-            </template>
+          <el-table-column label="24h增量" align="center">
+            <el-table-column
+              v-for="(h, hi) in tableSubHeaders"
+              :key="'d24-' + hi"
+              :label="h"
+              align="right"
+              min-width="88"
+            >
+              <template #default="{ row }">
+                <span
+                  class="num-cell"
+                  :style="{ color: deltaAt(row, hi)?.color || 'var(--text-secondary)' }"
+                  :title="deltaAt(row, hi)?.insuff ? '不足24h' : ''"
+                >{{ deltaAt(row, hi)?.text ?? '—' }}</span>
+              </template>
+            </el-table-column>
           </el-table-column>
           <el-table-column label="操作" width="120" align="center">
             <template #default="{ row }">
@@ -471,6 +481,23 @@ async function fetchOne(t: CompareTarget): Promise<{ points: CleanPoint[]; name:
     name: detail?.metrics?.title || t.name || `专栏 ${t.target}`,
     meta: detail?.metrics,
   }
+}
+
+/** 多级表头子列名：按对比集中第一个目标类型的语义指标 */
+const tableSubHeaders = computed(() => {
+  const t = cards.value[0]?.type || 'video'
+  return metricFieldsOf(t).map(f => f.label)
+})
+
+function summaryAt(row: { summary?: { label: string; value: string }[] }, idx: number): string {
+  return row.summary?.[idx]?.value ?? '—'
+}
+
+function deltaAt(
+  row: { delta24?: { label: string; text: string; color: string; insuff?: boolean }[] },
+  idx: number
+) {
+  return row.delta24?.[idx]
 }
 
 /** 各类型的三项展示：播放/弹幕/评论 或 点赞/评论/转发|收藏 */
@@ -1002,34 +1029,10 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.metrics-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-}
-.metrics-grid-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 8px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.metrics-grid-label {
-  color: var(--text-secondary);
-  flex: 0 0 28px;
-  text-align: left;
-}
-.metrics-grid-value {
-  flex: 1;
-  text-align: right;
+.num-cell {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
-  color: var(--text);
-  white-space: nowrap;
-}
-.metrics-grid--delta .metrics-grid-value {
   font-weight: 600;
+  white-space: nowrap;
 }
 </style>
