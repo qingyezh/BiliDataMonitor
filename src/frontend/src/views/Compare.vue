@@ -1,48 +1,33 @@
 <template>
   <div v-loading="loading">
     <div class="content-card">
-      <div class="card-title" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
-        <span style="flex: 0 0 auto">📊 多目标对比</span>
-        <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end">
-          <el-select v-model="metricKey" size="small" style="width: 110px" title="对比语义指标">
-            <el-option v-for="m in METRIC_OPTIONS" :key="m.value" :label="m.label" :value="m.value" />
-          </el-select>
-          <el-radio-group v-model="histMode" size="small">
-            <el-radio-button value="raw">原始值</el-radio-button>
-            <el-radio-button value="delta">增量</el-radio-button>
-          </el-radio-group>
-          <el-radio-group v-model="scaleMode" size="small">
-            <el-radio-button value="abs">绝对值</el-radio-button>
-            <el-radio-button value="growth">增长率</el-radio-button>
-            <el-radio-button value="index">指数100</el-radio-button>
-          </el-radio-group>
-          <el-radio-group v-model="timeAxis" size="small">
-            <el-radio-button value="calendar">日历</el-radio-button>
-            <el-radio-button value="relative">T+0</el-radio-button>
-          </el-radio-group>
-          <el-select v-model="chartGapMinutes" size="small" style="width: 72px" title="重采样间隔">
-            <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-          <el-switch v-model="logMode" size="small" active-text="对数" />
-          <el-switch v-model="showAvgLine" size="small" active-text="均值" />
-          <el-switch v-model="showTrend" size="small" active-text="趋势" />
-          <el-switch
-            v-if="metricKey !== 'page'"
-            v-model="overlayPage"
-            size="small"
-            active-text="叠加分P"
-            title="在当前指标上叠加各视频分P曲线（第三轴）"
-          />
-          <el-button size="small" @click="reload">刷新</el-button>
-          <el-button size="small" @click="exportCsv">CSV</el-button>
-          <el-button size="small" @click="savePng">PNG</el-button>
-        </div>
-      </div>
+      <!-- 行1：仅标题 -->
+      <div class="card-title">📊 多目标对比</div>
 
-      <!-- 行2：时间选择器独立一行 -->
-      <div class="compare-toolbar-row">
-        <!-- 日历模式：绝对时间范围 -->
-        <div class="date-range" v-if="timeAxis === 'calendar'">
+      <!-- 行2：模式 + 时间选择器 + 刷新（右对齐） -->
+      <div class="compare-toolbar-row toolbar-main">
+        <el-select v-model="metricKey" size="small" style="width: 110px" title="对比语义指标">
+          <el-option v-for="m in METRIC_OPTIONS" :key="m.value" :label="m.label" :value="m.value" />
+        </el-select>
+        <el-radio-group v-model="histMode" size="small">
+          <el-radio-button value="raw">原始值</el-radio-button>
+          <el-radio-button value="delta">增量</el-radio-button>
+        </el-radio-group>
+        <el-radio-group v-model="scaleMode" size="small">
+          <el-radio-button value="abs">绝对值</el-radio-button>
+          <el-radio-button value="growth">增长率</el-radio-button>
+          <el-radio-button value="index">指数100</el-radio-button>
+        </el-radio-group>
+        <el-radio-group v-model="timeAxis" size="small">
+          <el-radio-button value="calendar">日历</el-radio-button>
+          <el-radio-button value="relative">T+0</el-radio-button>
+        </el-radio-group>
+        <el-select v-model="chartGapMinutes" size="small" style="width: 72px" title="重采样间隔">
+          <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+
+        <!-- 日历 / T+0 时间选择器（模式控件右侧） -->
+        <template v-if="timeAxis === 'calendar'">
           <el-date-picker
             v-model="dateRange"
             type="datetimerange"
@@ -52,7 +37,7 @@
             end-placeholder="结束"
             value-format="YYYY-MM-DD HH:mm:ss"
             format="MM/DD HH:mm"
-            style="width: 312px"
+            style="width: 280px"
           />
           <el-button
             size="small"
@@ -61,9 +46,8 @@
           >
             {{ showAll ? '收起' : '全部' }}
           </el-button>
-        </div>
-        <!-- T+0：相对时间窗，零点=各自开始记录 -->
-        <div class="date-range" v-else>
+        </template>
+        <template v-else>
           <span style="font-size: 12px; color: var(--text-secondary)">相对范围</span>
           <el-input-number v-model="t0Start" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 88px" />
           <span style="font-size: 12px; color: var(--text-secondary)">~</span>
@@ -76,25 +60,21 @@
           <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 48)">前48h</el-button>
           <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="setT0Preset(0, 168)">前7天</el-button>
           <el-button size="small" style="background-color: #e6f4ff; border-color: #91caff; color: #1677ff" @click="t0ShowAll = !t0ShowAll">{{ t0ShowAll ? '限窗' : '全部' }}</el-button>
+        </template>
+
+        <div class="toolbar-spacer" />
+        <el-button size="small" type="primary" plain @click="reload">刷新</el-button>
+      </div>
+
+      <!-- 目标列表：工具 + 表格合成一块 -->
+      <div class="compare-list">
+        <div class="compare-list-bar">
+          <span class="compare-list-title">对比目标</span>
+          <div class="compare-list-actions">
+            <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
+            <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
+          </div>
         </div>
-      </div>
-
-      <!-- 行3：对比目标列表独立一行 -->
-      <div class="compare-toolbar-row target-chips">
-        <el-tag
-          v-for="t in targets"
-          :key="t.type + ':' + t.target"
-          closable
-          @close="onRemove(t)"
-          :title="t.name || t.target"
-        >
-          {{ typeLabel(t.type) }}·{{ displayAliasOrName(t) }}
-        </el-tag>
-        <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
-        <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
-      </div>
-
-      <div v-if="cards.length" class="compare-list">
         <el-table :data="cards" size="small" stripe>
           <el-table-column label="类型" width="72" align="center">
             <template #default="{ row }">
@@ -138,15 +118,17 @@
               <span style="color: #67c23a; font-weight: 600">{{ row.delta24h || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="80" align="center">
+          <el-table-column label="操作" width="120" align="center">
             <template #default="{ row }">
               <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
+              <el-button size="small" text type="danger" @click="onRemove({ type: row.type, target: row.target })">移除</el-button>
             </template>
           </el-table-column>
         </el-table>
       </div>
 
-      <div style="position: relative">
+      <!-- 图表 + 左下开关 / 右下导出 -->
+      <div class="chart-wrap">
         <LineChart
           ref="chartRef"
           :categories="chartCategories"
@@ -159,19 +141,40 @@
           :show-trend-line="showTrend"
           :trend-line-series="trendSeriesIdx"
         />
+        <div class="chart-footer">
+          <div class="chart-footer-left">
+            <div class="chart-switches">
+              <el-switch v-model="logMode" size="small" active-text="对数" />
+              <el-switch v-model="showAvgLine" size="small" active-text="均值" />
+              <el-switch v-model="showTrend" size="small" active-text="趋势" />
+              <el-switch
+                v-if="metricKey !== 'page'"
+                v-model="overlayPage"
+                size="small"
+                active-text="叠加分P"
+                title="在当前指标上叠加各视频分P曲线（第三轴）"
+              />
+            </div>
+            <div class="chart-note">
+              <template v-if="timeAxis === 'calendar'">时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟</template>
+              <template v-else>
+                T+0：各序列自起点对齐 ·
+                <template v-if="!t0ShowAll">窗 T+{{ t0StartLabel }}~T+{{ t0EndLabel }} · 约 {{ t0PointCountLabel }} 点 ·</template>
+                <template v-else>窗 全部 ·</template>
+                相对网格重采样 {{ chartGapMinutes }} 分钟
+              </template>
+              <template v-if="histMode === 'delta'"> · 增量：相对网格相邻差值，真断档才断线</template>
+              <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
+              <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
+            </div>
+          </div>
+          <div class="chart-footer-right">
+            <el-button size="small" @click="exportCsv">CSV</el-button>
+            <el-button size="small" @click="savePng">PNG</el-button>
+          </div>
+        </div>
       </div>
-      <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px">
-        <template v-if="timeAxis === 'calendar'">时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟</template>
-        <template v-else>
-          T+0：各序列自起点对齐 ·
-          <template v-if="!t0ShowAll">窗 T+{{ t0StartLabel }}~T+{{ t0EndLabel }} · 约 {{ t0PointCountLabel }} 点 ·</template>
-          <template v-else>窗 全部 ·</template>
-          相对网格重采样 {{ chartGapMinutes }} 分钟
-        </template>
-        <template v-if="histMode === 'delta'"> · 增量：相对网格相邻差值，真断档才断线</template>
-        <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
-        <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
-      </div>
+
       <div v-if="formulas.length" style="margin-top: 8px; padding: 10px 14px; background: var(--bg); border-radius: 6px">
         <el-collapse>
           <el-collapse-item title="趋势线公式" name="1">
@@ -673,7 +676,7 @@ function formatRelativeSlots(slots: number[]): string[] {
 function openDetail(c: { type: HistoryKind; target: string }) {
   router.push(`/detail/${c.type}/${c.target}`)
 }
-function onRemove(t: CompareTarget) {
+function onRemove(t: Pick<CompareTarget, 'type' | 'target'>) {
   targets.value = removeCompareTarget(t.type, t.target)
   reload()
 }
@@ -809,28 +812,77 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.compare-toolbar-row {
+.toolbar-main {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
-  min-height: 28px;
+  margin-bottom: 10px;
 }
-.date-range {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.target-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+.toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
 }
 .compare-list {
   margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.compare-list-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.compare-list-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.compare-list-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chart-wrap {
+  position: relative;
+}
+.chart-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.chart-footer-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.chart-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.chart-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.chart-footer-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .alias-cell {
   display: flex;
