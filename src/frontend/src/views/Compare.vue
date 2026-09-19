@@ -9,22 +9,36 @@
         <el-select v-model="metricKey" size="small" style="width: 110px" title="对比语义指标">
           <el-option v-for="m in METRIC_OPTIONS" :key="m.value" :label="m.label" :value="m.value" />
         </el-select>
+
+        <span class="toolbar-sep" aria-hidden="true" />
+
         <el-radio-group v-model="histMode" size="small">
           <el-radio-button value="raw">原始值</el-radio-button>
           <el-radio-button value="delta">增量</el-radio-button>
         </el-radio-group>
-        <el-radio-group v-model="scaleMode" size="small">
-          <el-radio-button value="abs">绝对值</el-radio-button>
-          <el-radio-button value="growth">增长率</el-radio-button>
-          <el-radio-button value="index">指数100</el-radio-button>
-        </el-radio-group>
+
+        <span class="toolbar-sep" aria-hidden="true" />
+
+        <el-select v-model="scaleMode" size="small" style="width: 100px" title="数值标度">
+          <el-option label="绝对值" value="abs" />
+          <el-option label="增长率" value="growth" />
+          <el-option label="指数100" value="index" />
+        </el-select>
+
+        <span class="toolbar-sep" aria-hidden="true" />
+
         <el-radio-group v-model="timeAxis" size="small">
           <el-radio-button value="calendar">日历</el-radio-button>
           <el-radio-button value="relative">T+0</el-radio-button>
         </el-radio-group>
+
+        <span class="toolbar-sep" aria-hidden="true" />
+
         <el-select v-model="chartGapMinutes" size="small" style="width: 72px" title="重采样间隔">
           <el-option v-for="opt in GAP_MINUTE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
         </el-select>
+
+        <span class="toolbar-sep" aria-hidden="true" />
 
         <!-- 日历 / T+0 时间选择器（模式控件右侧） -->
         <template v-if="timeAxis === 'calendar'">
@@ -37,7 +51,8 @@
             end-placeholder="结束"
             value-format="YYYY-MM-DD HH:mm:ss"
             format="MM/DD HH:mm"
-            style="width: 280px"
+            :style="{ width: DATE_RANGE_WIDTH + 'px' }"
+            class="date-range-compact"
           />
           <el-button
             size="small"
@@ -48,11 +63,11 @@
           </el-button>
         </template>
         <template v-else>
-          <span style="font-size: 12px; color: var(--text-secondary)">相对范围</span>
-          <el-input-number v-model="t0Start" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 88px" />
+          <span style="font-size: 12px; color: var(--text-secondary)">相对</span>
+          <el-input-number v-model="t0Start" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 72px" />
           <span style="font-size: 12px; color: var(--text-secondary)">~</span>
-          <el-input-number v-model="t0End" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 88px" />
-          <el-select v-model="t0Unit" size="small" style="width: 72px">
+          <el-input-number v-model="t0End" size="small" :min="0" :max="100000" :step="1" controls-position="right" style="width: 72px" />
+          <el-select v-model="t0Unit" size="small" style="width: 64px">
             <el-option label="小时" value="hour" />
             <el-option label="天" value="day" />
           </el-select>
@@ -294,6 +309,8 @@ const GAP_MINUTE_OPTIONS = [
   { label: '6小时', value: 360 },
   { label: '24小时', value: 1440 },
 ]
+/** 日历范围选择器总宽（含输入框与分隔符） */
+const DATE_RANGE_WIDTH = 220
 
 /** 语义指标 → 各类型字段名；null 表示该类型无此指标 */
 const METRIC_FIELD: Record<string, Partial<Record<HistoryKind, string>>> = {
@@ -822,6 +839,21 @@ onMounted(async () => {
 .toolbar-spacer {
   flex: 1 1 auto;
   min-width: 8px;
+}
+.toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border, #dcdfe6);
+  opacity: 0.9;
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+.toolbar-main :deep(.date-range-compact .el-range-input) {
+  width: 72px;
+}
+.toolbar-main :deep(.date-range-compact .el-range-separator) {
+  padding: 0 4px;
+  width: auto;
 }
 .compare-list {
   margin-bottom: 12px;
