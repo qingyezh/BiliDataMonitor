@@ -130,7 +130,7 @@
               :key="'sum-' + hi"
               :label="h"
               align="right"
-              min-width="80"
+              width="72"
             >
               <template #default="{ row }">
                 <span class="num-cell">{{ summaryAt(row, hi) }}</span>
@@ -143,7 +143,7 @@
               :key="'d24-' + hi"
               :label="h"
               align="right"
-              min-width="88"
+              width="76"
             >
               <template #default="{ row }">
                 <span
@@ -154,10 +154,12 @@
               </template>
             </el-table-column>
           </el-table-column>
-          <el-table-column label="操作" width="120" align="center">
+          <el-table-column label="操作" width="150" align="center">
             <template #default="{ row }">
-              <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
-              <el-button size="small" text type="danger" @click="onRemove({ type: row.type, target: row.target })">移除</el-button>
+              <div class="action-cell">
+                <el-button size="small" class="action-btn" type="primary" plain @click="openDetail(row)">详情</el-button>
+                <el-button size="small" class="action-btn" type="danger" plain @click="onRemove({ type: row.type, target: row.target })">移除</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -1034,5 +1036,30 @@ onMounted(async () => {
   font-feature-settings: "tnum";
   font-weight: 600;
   white-space: nowrap;
+}
+/* 压缩多级表头数值列内边距 */
+.compare-list :deep(.el-table .el-table__cell) {
+  padding: 4px 6px;
+}
+.compare-list :deep(.el-table th.el-table__cell > .cell) {
+  padding: 4px 4px;
+}
+.compare-list :deep(.el-table td.el-table__cell > .cell) {
+  padding: 4px 4px;
+}
+.action-cell {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.action-cell .action-btn {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
 }
 </style>
