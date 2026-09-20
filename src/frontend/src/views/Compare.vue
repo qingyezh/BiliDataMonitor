@@ -101,7 +101,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="280" align="center" show-overflow-tooltip />
-          <el-table-column label="别名" width="148" align="center">
+          <el-table-column label="别名" width="178" align="center">
             <template #default="{ row }">
               <div class="alias-cell">
                 <template v-if="editingAliasKey === row.key">
@@ -110,7 +110,7 @@
                     size="small"
                     :maxlength="20"
                     placeholder="图例名，空=清除"
-                    style="width: 90px"
+                    style="width: 100px"
                     @keyup.enter="confirmAlias(row)"
                     @keyup.esc="cancelAlias"
                   />
