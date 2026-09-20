@@ -99,7 +99,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
-          <el-table-column label="别名" min-width="160">
+          <el-table-column label="别名" min-width="180">
             <template #default="{ row }">
               <div class="alias-cell">
                 <template v-if="editingAliasKey === row.key">
@@ -108,29 +108,33 @@
                     size="small"
                     :maxlength="20"
                     placeholder="图例名，空=清除"
-                    style="width: 140px"
+                    style="width: 120px"
                     @keyup.enter="confirmAlias(row)"
                     @keyup.esc="cancelAlias"
                   />
-                  <el-button size="small" type="primary" text @click="confirmAlias(row)">存</el-button>
-                  <el-button size="small" text @click="cancelAlias">取消</el-button>
+                  <div class="alias-actions">
+                    <el-button size="small" type="primary" text @click="confirmAlias(row)">存</el-button>
+                    <el-button size="small" text @click="cancelAlias">取消</el-button>
+                  </div>
                 </template>
                 <template v-else>
-                  <span class="alias-value" :title="aliasMap[row.key] || ''">{{ aliasMap[row.key] || '未设置' }}</span>
-                  <el-button size="small" text type="primary" @click="startEditAlias(row)">{{ aliasMap[row.key] ? '修改' : '设置' }}</el-button>
-                  <el-button v-if="aliasMap[row.key]" size="small" text type="danger" @click="clearAlias(row)">清除</el-button>
+                  <span class="alias-name" :title="aliasMap[row.key] || ''">{{ aliasMap[row.key] || '未设置' }}</span>
+                  <div class="alias-actions">
+                    <el-button size="small" type="primary" text @click="startEditAlias(row)">{{ aliasMap[row.key] ? '修改' : '设置' }}</el-button>
+                    <el-button v-if="aliasMap[row.key]" size="small" type="danger" text @click="clearAlias(row)">清除</el-button>
+                  </div>
                 </template>
               </div>
             </template>
           </el-table-column>
-          <!-- 多级表头：指标 / 24h增量 各三列子列名 -->
+          <!-- 多级表头：指标 / 24h增量 子列同宽 -->
           <el-table-column label="指标" align="center">
             <el-table-column
               v-for="(h, hi) in tableSubHeaders"
               :key="'sum-' + hi"
               :label="h"
               align="right"
-              width="72"
+              :width="METRIC_COL_W"
             >
               <template #default="{ row }">
                 <span class="num-cell">{{ summaryAt(row, hi) }}</span>
@@ -143,7 +147,7 @@
               :key="'d24-' + hi"
               :label="h"
               align="right"
-              width="76"
+              :width="METRIC_COL_W"
             >
               <template #default="{ row }">
                 <span
@@ -334,6 +338,8 @@ const GAP_MINUTE_OPTIONS = [
 ]
 /** 日历范围选择器总宽 */
 const DATE_RANGE_WIDTH = 220
+/** 指标 / 24h 子列统一宽度 */
+const METRIC_COL_W = 80
 
 /** 语义指标 → 各类型字段名；null 表示该类型无此指标 */
 const METRIC_FIELD: Record<string, Partial<Record<HistoryKind, string>>> = {
@@ -1019,17 +1025,35 @@ onMounted(async () => {
 .alias-cell {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 4px;
-  flex-wrap: wrap;
+  width: 100%;
   min-height: 24px;
 }
-.alias-value {
+.alias-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
   font-size: 12px;
   color: var(--text);
-  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.alias-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.alias-actions :deep(.el-button) {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding: 2px 4px;
+  font-size: 12px;
 }
 .num-cell {
   font-variant-numeric: tabular-nums;
