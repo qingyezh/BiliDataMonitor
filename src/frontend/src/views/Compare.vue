@@ -86,7 +86,9 @@
       <!-- 目标列表：工具 + 表格合成一块 -->
       <div class="compare-list">
         <div class="compare-list-bar">
+          <div class="bar-spacer" />
           <span class="compare-list-title">对比目标</span>
+          <div class="bar-spacer" />
           <div class="compare-list-actions">
             <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
             <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
@@ -98,8 +100,8 @@
               <el-tag size="small" :type="tagType(row.type)">{{ typeLabel(row.type) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
-          <el-table-column label="别名" min-width="180">
+          <el-table-column prop="name" label="名称" min-width="280" align="center" show-overflow-tooltip />
+          <el-table-column label="别名" width="148" align="center">
             <template #default="{ row }">
               <div class="alias-cell">
                 <template v-if="editingAliasKey === row.key">
@@ -108,7 +110,7 @@
                     size="small"
                     :maxlength="20"
                     placeholder="图例名，空=清除"
-                    style="width: 120px"
+                    style="width: 90px"
                     @keyup.enter="confirmAlias(row)"
                     @keyup.esc="cancelAlias"
                   />
@@ -969,19 +971,28 @@ onMounted(async () => {
   background: var(--bg);
 }
 .compare-list-bar {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
+.bar-spacer {
+  flex: 1 1 auto;
+}
 .compare-list-title {
+  flex: 0 0 auto;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  text-align: center;
 }
 .compare-list-actions {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: 8px;
   align-items: center;
