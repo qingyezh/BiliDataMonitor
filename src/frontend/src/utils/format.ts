@@ -46,11 +46,14 @@ export function formatSmartTimestamps(timestamps: (number | string)[]): string[]
   return labels
 }
 
+/** 大数字：亿 / 万 / 千（中文单位，不用 k） */
 export function formatNum(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '0'
-  if (n >= 100000000) return (n / 100000000).toFixed(2) + '亿'
-  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  if (n === null || n === undefined || Number.isNaN(n)) return '0'
+  const sign = n < 0 ? '-' : ''
+  const abs = Math.abs(n)
+  if (abs >= 100000000) return sign + (abs / 100000000).toFixed(2) + '亿'
+  if (abs >= 10000) return sign + (abs / 10000).toFixed(1) + '万'
+  if (abs >= 1000) return sign + (abs / 1000).toFixed(1) + '千'
   return String(n)
 }
 

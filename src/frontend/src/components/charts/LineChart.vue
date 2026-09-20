@@ -254,7 +254,7 @@ function logInverse(t: number): number {
 function formatLogValue(v: number): string {
   if (v >= 100000000) return (v / 100000000).toFixed(1) + '亿'
   if (v >= 10000) return (v / 10000).toFixed(1) + '万'
-  if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
+  if (v >= 1000) return (v / 1000).toFixed(1) + '千'
   if (v >= 1) return String(Math.round(v))
   return v.toFixed(2)
 }
