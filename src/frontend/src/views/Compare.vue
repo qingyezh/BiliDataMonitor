@@ -975,7 +975,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
 }
 .bar-spacer {
@@ -1072,15 +1072,27 @@ onMounted(async () => {
   font-weight: 600;
   white-space: nowrap;
 }
-/* 压缩多级表头数值列内边距 */
+/* 表头紧压：只缩小 th，td 保持可读 */
 .compare-list :deep(.el-table .el-table__cell) {
   padding: 4px 6px;
 }
+.compare-list :deep(.el-table th.el-table__cell) {
+  padding: 2px 2px;
+  line-height: 1.35;
+  font-size: 12px;
+  font-weight: 600;
+}
 .compare-list :deep(.el-table th.el-table__cell > .cell) {
-  padding: 4px 4px;
+  padding: 2px 4px;
+  line-height: 1.35;
+  font-size: 12px;
 }
 .compare-list :deep(.el-table td.el-table__cell > .cell) {
   padding: 4px 4px;
+}
+.compare-list :deep(.el-table__header th.el-table__cell) {
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 .action-cell {
   display: flex;
