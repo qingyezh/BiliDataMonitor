@@ -1086,6 +1086,7 @@ onMounted(async () => {
   padding: 2px 4px;
   line-height: 1.35;
   font-size: 12px;
+  text-align: center;
 }
 .compare-list :deep(.el-table td.el-table__cell > .cell) {
   padding: 4px 4px;
