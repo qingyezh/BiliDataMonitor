@@ -217,6 +217,42 @@
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
 
+      <!-- 非自然流量指数（前48h） -->
+      <div class="content-card" v-if="videoBoostIndex">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span>🛡️ 非自然流量指数（前48小时）</span>
+          <span class="boost-level-tag" :class="`boost-${videoBoostIndex.level}`">{{ videoBoostIndex.levelText }}</span>
+        </div>
+        <div v-if="videoBoostIndex.insufficient" class="boost-insufficient">{{ videoBoostIndex.insufficient }}</div>
+        <template v-else>
+          <div class="boost-main">
+            <div class="boost-score" :class="`boost-${videoBoostIndex.level}`">
+              <div class="boost-score-num">{{ videoBoostIndex.score }}</div>
+              <div class="boost-score-label">/ 100 · 越高越像人工强推</div>
+            </div>
+            <div class="boost-bar-wrap">
+              <div class="boost-bar">
+                <div class="boost-bar-fill" :class="`boost-${videoBoostIndex.level}`" :style="{ width: videoBoostIndex.score + '%' }"></div>
+              </div>
+              <div class="boost-parts">
+                <span>形态 {{ videoBoostIndex.parts.shape }}</span>
+                <span>超额 {{ videoBoostIndex.parts.excess }}</span>
+                <span>加速度 {{ videoBoostIndex.parts.aux }}</span>
+                <span>三线共动 {{ videoBoostIndex.parts.co }}</span>
+                <span v-if="videoBoostIndex.parts.rhythmPenalty > 0">节律降权 -{{ videoBoostIndex.parts.rhythmPenalty }}%</span>
+              </div>
+            </div>
+          </div>
+          <div class="boost-evidence" v-if="videoBoostIndex.evidence.length">
+            <div v-for="e in videoBoostIndex.evidence" :key="e.key" class="boost-evidence-item">
+              <span class="boost-evidence-label">{{ e.label }}</span>
+              <span class="boost-evidence-detail">{{ e.detail }}</span>
+            </div>
+          </div>
+          <div class="boost-note">基于监测序列前 48h 播放/弹幕/评论增量形态；非执法结论，仅供趋势研判。样本 {{ videoBoostIndex.sampleCount }} 点</div>
+        </template>
+      </div>
+
       <div class="content-card" v-if="videoHistory.length > 0">
         <div class="card-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px">
           <span style="flex: 0 0 auto">📈 数据变化趋势</span>
@@ -554,7 +590,7 @@ import { ArrowLeft, Download, Picture } from '@element-plus/icons-vue'
 import LineChart from '../components/charts/LineChart.vue'
 import type { TrendFormula, DeletePointPayload } from '../components/charts/LineChart.vue'
 import BarChart from '../components/charts/BarChart.vue'
-import { monitorApi, type UpMetrics, type UpDurationDist, type VideoMetrics, type VideoHistoryPoint, type HistoryKind } from '../api/monitor'
+import { monitorApi, type UpMetrics, type UpDurationDist, type VideoMetrics, type VideoHistoryPoint, type HistoryKind, type BoostIndex } from '../api/monitor'
 import { formatNum, formatTimestamp, formatDuration, formatSmartTimestamps, formatRecordDuration } from '../utils/format'
 import { dedupeNearDuplicates, DUPLICATE_MERGE_MS } from '../utils/historyClean'
 import { toggleCompareTarget, hasCompareTarget, COMPARE_MAX } from '../utils/compareStore'
@@ -678,6 +714,7 @@ const videoSortBy = ref('created')
 // 视频数据
 const videoMetrics = ref<VideoMetrics | null>(null)
 const videoRealtime = ref<{ play: number; danmaku: number; reply: number; page_count: number } | null>(null)
+const videoBoostIndex = ref<BoostIndex | null>(null)
 const videoHistory = ref<VideoHistoryPoint[]>([])
 
 /** 当前分P数：优先 realtime，否则取历史最大值（单P为 1） */
@@ -1243,6 +1280,7 @@ async function loadData() {
       ])
       videoMetrics.value = detail?.metrics || null
       videoRealtime.value = detail?.realtime || null
+      videoBoostIndex.value = detail?.boostIndex || null
       videoHistory.value = dedupeNearDuplicates(history as any[], DUPLICATE_MERGE_MS, ['play', 'video_review', 'comment'])
     } else if (type.value === 'dynamic') {
       const [detail, history] = await Promise.all([
@@ -1309,6 +1347,7 @@ watch(
     upHistory.value = []
     videoMetrics.value = null
     videoRealtime.value = null
+    videoBoostIndex.value = null
     videoHistory.value = []
     dynamicMetrics.value = null
     dynamicHistory.value = []
@@ -1351,6 +1390,115 @@ onMounted(async () => {
 }
 .stat-card .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .stat-card .value { font-size: 18px; font-weight: 700; }
+
+.boost-level-tag {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.boost-level-tag.boost-low { background: #f0f9eb; color: #67c23a; }
+.boost-level-tag.boost-medium { background: #fdf6ec; color: #e6a23c; }
+.boost-level-tag.boost-high { background: #fef0f0; color: #f56c6c; }
+
+.boost-insufficient {
+  margin-top: 8px;
+  padding: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.boost-main {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.boost-score {
+  min-width: 120px;
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.boost-score.boost-low { border-color: #b3e19d; }
+.boost-score.boost-medium { border-color: #f3d19e; }
+.boost-score.boost-high { border-color: #fab6b6; }
+.boost-score-num {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.boost-score.boost-low .boost-score-num { color: #67c23a; }
+.boost-score.boost-medium .boost-score-num { color: #e6a23c; }
+.boost-score.boost-high .boost-score-num { color: #f56c6c; }
+.boost-score-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.boost-bar-wrap {
+  flex: 1;
+  min-width: 220px;
+}
+.boost-bar {
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.boost-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.boost-bar-fill.boost-low { background: #67c23a; }
+.boost-bar-fill.boost-medium { background: #e6a23c; }
+.boost-bar-fill.boost-high { background: #f56c6c; }
+.boost-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.boost-evidence {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+.boost-evidence-item {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.boost-evidence-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 96px;
+}
+.boost-evidence-detail {
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 160px;
+}
+.boost-note {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 .chart-controls {
   position: absolute;
   bottom: 30px;

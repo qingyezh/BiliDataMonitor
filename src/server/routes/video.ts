@@ -1,6 +1,7 @@
 // 单视频监测路由
 import type { FastifyInstance } from 'fastify'
-import { getVideoMetrics, listVideoHistory } from '../database.js'
+import { getVideoMetrics, listVideoHistory, listVideoHistoryLeading } from '../database.js'
+import { computeBoostIndex } from '../analytics/boostIndex.js'
 import { BilibiliAPI } from '../crawler/bilibili.js'
 import { getCookie } from '../config.js'
 
@@ -26,7 +27,17 @@ export default async function videoRoutes(app: FastifyInstance): Promise<void> {
     if (!metrics && !realtime) {
       return reply.code(404).send({ success: false, message: '暂无该视频数据，请先添加监测任务并刷新' })
     }
-    return { success: true, data: { metrics: metrics || null, realtime } }
+    // 前48h非自然流量指数
+    const leading = listVideoHistoryLeading(req.params.bvid, 48)
+    const boostIndex = computeBoostIndex(
+      leading.map((r) => ({
+        play: r.play,
+        video_review: r.video_review,
+        comment: r.comment,
+        created_at: r.created_at,
+      }))
+    )
+    return { success: true, data: { metrics: metrics || null, realtime, boostIndex } }
   })
 
   app.get<{ Params: { bvid: string }; Querystring: { limit?: string; offset?: string } }>('/:bvid/history', async (req) => {

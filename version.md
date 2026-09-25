@@ -1,5 +1,16 @@
 # 版本记录
 
+## v0.2.2.15 (2026-09-26)
+
+- feat: 非自然流量指数（0-100）
+  - 后端 `src/server/analytics/boostIndex.ts`：基于监测序列前 48h 播放/弹幕/评论增量
+  - 形态（跃升/平台/断崖/阶跃沿）40% + 节律校正超额积分 35% + 加速度 15% + 三线共动 10%
+  - 速率按实际 Δt 归一到 5min 标称（快照约 5min±10s，最多±20s）
+  - 节律惩罚：缓升 + 活跃时段（12-14/18-23）降权；强阶跃+断崖抬升
+  - `GET /api/video/:bvid/detail` 返回 `boostIndex`（score/level/parts/evidence）
+  - 前端视频详情概览新增「非自然流量指数」卡片（分数条 + 子分 + 证据列表）
+  - 数据库新增 `listVideoHistoryLeading(bvid, hours)`
+
 ## v0.2.2.14 (2026-09-20)
 
 - feat: 对比列表列名栏高度紧压

@@ -705,6 +705,19 @@ export function listVideoHistory(bvid: string, limit?: number, offset?: number):
   return getDb().prepare(sql).all(...params) as VideoHistoryRow[]
 }
 
+/** 取监测序列前 N 小时的快照（用于前48h形态分析） */
+export function listVideoHistoryLeading(bvid: string, hours = 48): VideoHistoryRow[] {
+  const d = getDb()
+  const first = d
+    .prepare('SELECT created_at FROM video_history WHERE bvid = ? ORDER BY created_at ASC LIMIT 1')
+    .get(bvid) as { created_at: number } | undefined
+  if (!first) return []
+  const end = first.created_at + hours * 3600 * 1000
+  return d
+    .prepare('SELECT * FROM video_history WHERE bvid = ? AND created_at <= ? ORDER BY created_at ASC')
+    .all(bvid, end) as VideoHistoryRow[]
+}
+
 export function listUpDailyStats(mid: string): UpDailyStat[] {
   return getDb().prepare('SELECT * FROM up_daily_stats WHERE mid = ? ORDER BY date ASC').all(mid) as UpDailyStat[]
 }

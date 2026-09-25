@@ -146,9 +146,33 @@ export interface UpAnalysis {
   history: any[]
 }
 
+export interface BoostIndexEvidence {
+  key: string
+  label: string
+  detail: string
+}
+
+export interface BoostIndex {
+  score: number
+  level: 'low' | 'medium' | 'high'
+  levelText: string
+  sampleCount: number
+  windowHours: number
+  parts: {
+    shape: number
+    excess: number
+    aux: number
+    co: number
+    rhythmPenalty: number
+  }
+  evidence: BoostIndexEvidence[]
+  insufficient?: string
+}
+
 export interface VideoDetail {
   metrics: VideoMetrics | null
   realtime: { play: number; danmaku: number; reply: number; page_count: number } | null
+  boostIndex?: BoostIndex | null
 }
 
 export interface UpVideoPage {
