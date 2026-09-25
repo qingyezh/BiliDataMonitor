@@ -19,10 +19,10 @@
 
 ## 更新步骤
 
-### 1. 本地已完成（本仓库）
+### 1. 本地编译（服务器资源有限，**禁止在服务器 tsc/vite**）
 
 ```powershell
-pnpm build   # 已通过：server tsc + vite → app/web
+pnpm build   # server tsc + vite → app/web
 ```
 
 确认存在：
@@ -30,50 +30,72 @@ pnpm build   # 已通过：server tsc + vite → app/web
 - `src/server/dist/routes/video.js` 含 `computeBoostIndex`
 - `app/web/assets/Detail-*.js` 已更新
 
-### 2. 同步到服务器（只推运行所需）
+### 2. 推送本地编译产物到服务器
 
 ```powershell
 $pem = "F:\软件数据\Edge 下载\青叶.pem"
 $host = "root@39.96.62.120"
 $remote = "/home/admin/project/BiliDataMonitor-linux"
 
-# 后端源码（服务器上用项目内 tsc 再编译，见 AGENTS）
-scp -i $pem src/server/analytics/boostIndex.ts ${host}:${remote}/src/server/analytics/
-scp -i $pem src/server/database.ts src/server/routes/video.ts ${host}:${remote}/src/server/
-# 或整目录：scp -i $pem -r src/server ${host}:${remote}/src/
-
-# 前端构建产物（本地已编好，直接覆盖）
-scp -i $pem -r app/web ${host}:${remote}/app/
+# 先停服杀进程（见步骤 3），再推
+scp -i $pem -r src/server/dist/* ${host}:${remote}/src/server/dist_new/
+scp -i $pem -r app/web/* ${host}:${remote}/app/web_new/
 ```
 
-### 3. 服务器编译后端
+### 3. 停服 + 清进程（防双开）
 
 ```bash
-ssh -i $pem $host
+systemctl stop bili-monitor
+systemctl stop bilidatamonitor   # 两个 unit 同源 ExecStart，必须都停
+# 杀掉本项目残留 node（含旧进程）
+pkill -f 'BiliDataMonitor-linux/src/server/dist/index.js' || true
+sleep 1
+pkill -9 -f 'BiliDataMonitor-linux/src/server/dist/index.js' || true
+rm -f app/data/bili-monitor.lock
+# 确认 0 个进程、端口空闲
+pgrep -af 'BiliDataMonitor-linux/src/server/dist/index.js' || echo none
+ss -lntp | grep -E '8123|8124' || echo ports_free
+```
+
+### 4. 原子换入产物
+
+```bash
 cd /home/admin/project/BiliDataMonitor-linux
-# 禁止 npx tsc（可能解析到错误包），用：
-node node_modules/.pnpm/typescript@*/node_modules/typescript/bin/tsc -p src/server/tsconfig.json
-# 校验 0 error，并确认 dist/analytics/boostIndex.js 存在
+mv src/server/dist src/server/dist_old && mv src/server/dist_new src/server/dist
+mv app/web app/web_old && mv app/web_new app/web
+test -f src/server/dist/analytics/boostIndex.js && echo DIST_OK
 ```
 
-### 4. 重启服务
+### 5. 启动（只开一个 unit，避免双开）
 
 ```bash
-sudo systemctl restart bilidatamonitor
-# 或
-sudo systemctl restart bili-monitor
+# 当前线上 unit 为 bili-monitor（端口以 settings.json 为准，现网 8124）
+systemctl start bili-monitor
+systemctl is-active bili-monitor
+systemctl is-active bilidatamonitor   # 应为 inactive
 
-systemctl is-active bilidatamonitor
-journalctl -u bilidatamonitor -n 50 --no-pager
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8123/
+# 校验单实例：仅 1 个 node + lock.pid 一致
+pgrep -af 'BiliDataMonitor-linux/src/server/dist/index.js'
+cat app/data/bili-monitor.lock
+ss -lntp | grep -E '8123|8124'
 ```
 
-### 5. 冒烟验证
+**双开防护要点：**
+- `bili-monitor` 与 `bilidatamonitor` 的 `ExecStart` 相同，**禁止同时 active**
+- 启动前必须 `rm` 旧 lock；进程退出后若 lock 残留会挡住新实例
+- 端口被占时应用会直接退出（不自动换端口），属预期行为
+
+### 6. 冒烟验证
 
 ```bash
-# 任选一条有 ≥24 个前48h 样本的 bvid
-curl -s http://127.0.0.1:8123/api/video/BV13Xew6LE7T/detail | jq '.data.boostIndex'
-# 期望：score 为 0-100 整数，evidence 非空或 insufficient 有文案
+# 算法层（不需要 API Key）
+cd /home/admin/project/BiliDataMonitor-linux
+node --experimental-sqlite smoke_boost_server.mjs BV13Xew6LE7T
+# 期望：SMOKE_OK，score∈[0,100]
+
+# HTTP 层
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8124/
+# 200；详情 API 需 x-api-key，浏览器登录后看卡片
 ```
 
 浏览器打开 `/detail/video/<bvid>`：

@@ -10,6 +10,7 @@
   - `GET /api/video/:bvid/detail` 返回 `boostIndex`（score/level/parts/evidence）
   - 前端视频详情概览新增「非自然流量指数」卡片（分数条 + 子分 + 证据列表）
   - 数据库新增 `listVideoHistoryLeading(bvid, hours)`
+  - 部署：本地编译 `dist`+`app/web` 直推服务器（不在服务器编译）；停服后杀残留进程再启动，防双开
 
 ## v0.2.2.14 (2026-09-20)
 
