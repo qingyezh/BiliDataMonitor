@@ -217,42 +217,6 @@
         <el-empty v-else description="暂无数据，请先刷新" :image-size="60" />
       </div>
 
-      <!-- 非自然流量指数（前48h） -->
-      <div class="content-card" v-if="videoBoostIndex">
-        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
-          <span>🛡️ 非自然流量指数（前48小时）</span>
-          <span class="boost-level-tag" :class="`boost-${videoBoostIndex.level}`">{{ videoBoostIndex.levelText }}</span>
-        </div>
-        <div v-if="videoBoostIndex.insufficient" class="boost-insufficient">{{ videoBoostIndex.insufficient }}</div>
-        <template v-else>
-          <div class="boost-main">
-            <div class="boost-score" :class="`boost-${videoBoostIndex.level}`">
-              <div class="boost-score-num">{{ videoBoostIndex.score }}</div>
-              <div class="boost-score-label">/ 100 · 越高越像人工强推</div>
-            </div>
-            <div class="boost-bar-wrap">
-              <div class="boost-bar">
-                <div class="boost-bar-fill" :class="`boost-${videoBoostIndex.level}`" :style="{ width: videoBoostIndex.score + '%' }"></div>
-              </div>
-              <div class="boost-parts">
-                <span>形态 {{ videoBoostIndex.parts.shape }}</span>
-                <span>超额 {{ videoBoostIndex.parts.excess }}</span>
-                <span>加速度 {{ videoBoostIndex.parts.aux }}</span>
-                <span>三线共动 {{ videoBoostIndex.parts.co }}</span>
-                <span v-if="videoBoostIndex.parts.rhythmPenalty > 0">节律降权 -{{ videoBoostIndex.parts.rhythmPenalty }}%</span>
-              </div>
-            </div>
-          </div>
-          <div class="boost-evidence" v-if="videoBoostIndex.evidence.length">
-            <div v-for="e in videoBoostIndex.evidence" :key="e.key" class="boost-evidence-item">
-              <span class="boost-evidence-label">{{ e.label }}</span>
-              <span class="boost-evidence-detail">{{ e.detail }}</span>
-            </div>
-          </div>
-          <div class="boost-note">基于监测序列前 48h 播放/弹幕/评论增量形态；非执法结论，仅供趋势研判。样本 {{ videoBoostIndex.sampleCount }} 点</div>
-        </template>
-      </div>
-
       <div class="content-card" v-if="videoHistory.length > 0">
         <div class="card-title" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px">
           <span style="flex: 0 0 auto">📈 数据变化趋势</span>
@@ -346,6 +310,42 @@
           <template v-else-if="videoHistMode === 'delta'">增量模式：相邻快照差值（不含首日），负值红点标记</template>
           <template v-else>评论下降：相邻快照评论减少量</template>
         </div>
+      </div>
+
+      <!-- 非自然流量指数（前48h） -->
+      <div class="content-card" v-if="videoBoostIndex">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+          <span>🛡️ 非自然流量指数（前48小时）</span>
+          <span class="boost-level-tag" :class="`boost-${videoBoostIndex.level}`">{{ videoBoostIndex.levelText }}</span>
+        </div>
+        <div v-if="videoBoostIndex.insufficient" class="boost-insufficient">{{ videoBoostIndex.insufficient }}</div>
+        <template v-else>
+          <div class="boost-main">
+            <div class="boost-score" :class="`boost-${videoBoostIndex.level}`">
+              <div class="boost-score-num">{{ videoBoostIndex.score }}</div>
+              <div class="boost-score-label">/ 100 · 越高越像人工强推</div>
+            </div>
+            <div class="boost-bar-wrap">
+              <div class="boost-bar">
+                <div class="boost-bar-fill" :class="`boost-${videoBoostIndex.level}`" :style="{ width: videoBoostIndex.score + '%' }"></div>
+              </div>
+              <div class="boost-parts">
+                <span>形态 {{ videoBoostIndex.parts.shape }}</span>
+                <span>超额 {{ videoBoostIndex.parts.excess }}</span>
+                <span>加速度 {{ videoBoostIndex.parts.aux }}</span>
+                <span>三线共动 {{ videoBoostIndex.parts.co }}</span>
+                <span v-if="videoBoostIndex.parts.rhythmPenalty > 0">节律降权 -{{ videoBoostIndex.parts.rhythmPenalty }}%</span>
+              </div>
+            </div>
+          </div>
+          <div class="boost-evidence" v-if="videoBoostIndex.evidence.length">
+            <div v-for="e in videoBoostIndex.evidence" :key="e.key" class="boost-evidence-item">
+              <span class="boost-evidence-label">{{ e.label }}</span>
+              <span class="boost-evidence-detail">{{ e.detail }}</span>
+            </div>
+          </div>
+          <div class="boost-note">基于监测序列前 48h 播放/弹幕/评论增量形态；非执法结论，仅供趋势研判。样本 {{ videoBoostIndex.sampleCount }} 点</div>
+        </template>
       </div>
     </template>
 
