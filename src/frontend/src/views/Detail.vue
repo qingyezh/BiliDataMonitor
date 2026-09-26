@@ -131,6 +131,16 @@
         <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
           <span>🎬 视频排行</span>
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :loading="refreshingBoost"
+              title="强制重算本 UP 全部视频的非自然流量指数"
+              @click="refreshAllBoostIndex"
+            >
+              刷新指数
+            </el-button>
             <el-button size="small" :disabled="!selectedVideos.length" @click="addSelectedVideosToCompare">
               加入对比（{{ selectedVideos.length }}）
             </el-button>
@@ -721,6 +731,7 @@ const videos = ref<any[]>([])
 const videoPage = ref(1)
 const videoPageSize = ref(10)
 const videoSortBy = ref('created')
+const refreshingBoost = ref(false)
 
 // 视频数据
 const videoMetrics = ref<VideoMetrics | null>(null)
@@ -1329,6 +1340,19 @@ async function loadVideos() {
   const r = await monitorApi.upVideos(target.value, { page: 1, page_size: 200, sort: videoSortBy.value })
   videos.value = r.items || []
   videoTotal.value = r.total || 0
+}
+
+async function refreshAllBoostIndex() {
+  refreshingBoost.value = true
+  try {
+    const r = await monitorApi.refreshUpBoostIndex(target.value)
+    ElMessage.success(`已重算 ${r.updated}/${r.total} 条异常流量指数`)
+    await loadVideos()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '重算失败')
+  } finally {
+    refreshingBoost.value = false
+  }
 }
 
 async function refreshNow() {

@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
   getUpMetrics, listVideosByMid, countVideosByMid, listVideoHistory,
+  recomputeVideoBoostIndex, getDb,
   listUpDailyStats, listUpMonthlyTrend, listUpDurationDist, listUpHistory,
 } from '../database.js'
 
@@ -49,6 +50,25 @@ export default async function upRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Params: { mid: string } }>('/:mid/history', async (req) => {
     return { success: true, data: listUpDailyStats(req.params.mid) }
+  })
+
+  /** 强制重算该 UP 全部视频的非自然流量指数（忽略 6h 分桶冻结） */
+  app.post<{ Params: { mid: string } }>('/:mid/boost-recompute', async (req) => {
+    const mid = req.params.mid
+    const bvids = (
+      getDb().prepare('SELECT bvid FROM videos WHERE mid = ?').all(mid) as { bvid: string }[]
+    ).map((r) => r.bvid)
+    let updated = 0
+    let failed = 0
+    for (const bvid of bvids) {
+      try {
+        recomputeVideoBoostIndex(bvid, Date.now(), true)
+        updated++
+      } catch {
+        failed++
+      }
+    }
+    return { success: true, data: { mid, total: bvids.length, updated, failed } }
   })
 
   app.get<{ Params: { mid: string; bvid: string }; Querystring: { limit?: string; offset?: string } }>('/:mid/video-history/:bvid', async (req) => {

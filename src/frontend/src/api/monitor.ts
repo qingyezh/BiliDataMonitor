@@ -210,6 +210,8 @@ export const monitorApi = {
   // UP
   upStatus: (mid: string) => api.get(`/up/${mid}/status`).then(r => unwrap<UpMetrics>(r)),
   upVideos: (mid: string, params?: any) => api.get(`/up/${mid}/videos`, { params }).then(r => unwrap<UpVideoPage>(r)),
+  refreshUpBoostIndex: (mid: string) =>
+    api.post(`/up/${mid}/boost-recompute`).then(r => unwrap<{ mid: string; total: number; updated: number; failed: number }>(r)),
   upAnalysis: (mid: string) => api.get(`/up/${mid}/analysis`).then(r => unwrap<UpAnalysis>(r)),
   upHistory: (mid: string) => api.get(`/up/${mid}/history`).then(r => unwrap<UpDailyStat[]>(r)),
   upVideoHistory: (mid: string, bvid: string) => api.get(`/up/${mid}/video-history/${bvid}`).then(r => unwrap<VideoHistoryPoint[]>(r)),
