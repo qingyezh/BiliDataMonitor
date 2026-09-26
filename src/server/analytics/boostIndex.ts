@@ -42,6 +42,7 @@ export interface BoostIndexResult {
     plateauScore: number
     plateauLen: number
     excessRatio: number
+    diurnalScore: number
   }
 }
 
@@ -50,10 +51,11 @@ const NOMINAL_DT_S = 300
 const MIN_POINTS = 24
 
 /** 算法版本：公式/阈值变更时 +1，缓存行将触发重算
- *  v2: 冷启动截断 + 绝对量门槛，修复低基数假跃升
- *  v3: 高位平台须高于中位（排除尾部低平段）；阶跃+长高台+断崖 组合加分
+ *  v2: 冷启动截断 + 绝对量门槛
+ *  v3: 高位平台定义 + 阶跃/长台/断崖组合加分
+ *  v4: 剔除负播放增量 + 3 点中值滤波 + 日节律可解释度
  */
-export const BOOST_ALGO_VERSION = 3
+export const BOOST_ALGO_VERSION = 4
 
 function median(xs: number[]): number {
   if (!xs.length) return 0
@@ -145,10 +147,12 @@ function plateauScore(x: number[], start: number, minLen = 6): {
   const n = x.length
   if (start < 0 || n < minLen * 2) return { score: 0, len: 0, decay: 0 }
   const med = median(x) || 1
-  // 高位门槛：须高于序列中位，且不低于冷启动后局部峰值的 20%
+  // 高位门槛：用冷启动后的中位（避免冷启动尖峰抬高门槛）且不低于局部峰值 15%
   let localPeak = 0
-  for (let t = Math.max(0, start); t < n; t++) localPeak = Math.max(localPeak, x[t])
-  const highGate = Math.max(med, 0.2 * localPeak, 1)
+  const from = Math.max(0, start)
+  for (let t = from; t < n; t++) localPeak = Math.max(localPeak, x[t])
+  const medPost = median(x.slice(from)) || med
+  const highGate = Math.max(0.9 * medPost, 0.15 * localPeak, 1)
   let best = 0
   let bestLen = 0
   let bestDecay = 0
@@ -279,6 +283,103 @@ function riseWidth(x: number[], idx: number): number {
   return idx - j
 }
 
+/** 3 点中值滤波：去掉单点毛刺（含负增量剔除后的残差尖峰） */
+function medianFilter3(x: number[]): number[] {
+  const n = x.length
+  if (n < 3) return x.slice()
+  const y = new Array<number>(n)
+  y[0] = x[0]
+  y[n - 1] = x[n - 1]
+  for (let i = 1; i < n - 1; i++) {
+    const a = x[i - 1]
+    const b = x[i]
+    const c = x[i + 1]
+    y[i] = a <= b ? (b <= c ? b : a <= c ? c : a) : b <= c ? (c <= a ? c : b) : a <= c ? a : b
+  }
+  return y
+}
+
+/**
+ * 日节律可解释度（0-1）：越大越像自然节律爬升，而非人工强推。
+ *
+ * 区分原则：
+ * 1) 午后从低谷爬升、1–2h 后回落峰值 → 节律/自然波
+ * 2) 任意时刻阶跃，且高位持续数小时 → 投流供给（不可用小时效应解释）
+ */
+function diurnalExplainScore(x: number[], tMs: number[], jumpI: number, k = 3): number {
+  if (jumpI < k || jumpI >= x.length - k) return 0
+  const before = winMean(x, jumpI, k, true)
+  const after = winMean(x, jumpI, k, false)
+  const observed = after / Math.max(before, 1e-6)
+  if (observed <= 1.05) return 0
+
+  // 小时基线：优先只用跃升前样本，避免被投放段抬高
+  const byHour = new Map<number, number[]>()
+  const limit = Math.max(12, Math.floor(jumpI * 0.85))
+  for (let i = 0; i < limit; i++) {
+    const h = toLocalHour(tMs[i])
+    const arr = byHour.get(h) || []
+    arr.push(x[i])
+    byHour.set(h, arr)
+  }
+  // 样本不足时退化为全序列（仍稳健中位）
+  const useAll = byHour.size < 6
+  if (useAll) {
+    for (let i = 0; i < x.length; i++) {
+      const h = toLocalHour(tMs[i])
+      const arr = byHour.get(h) || []
+      arr.push(x[i])
+      byHour.set(h, arr)
+    }
+  }
+  const hourMed = (h: number) => {
+    const arr = byHour.get(h)
+    return arr && arr.length ? median(arr) : median(x) || 1
+  }
+
+  const hBefore = toLocalHour(tMs[Math.max(0, jumpI - k)])
+  const hAfter = toLocalHour(tMs[Math.min(tMs.length - 1, jumpI + k)])
+  const diurnalRatio = Math.max(hourMed(hAfter), 1e-6) / Math.max(hourMed(hBefore), 1e-6)
+
+  // 观测跃升与小时效应是否一致（一致→偏节律）
+  const ratioMatch = Math.exp(-Math.abs(Math.log(Math.max(observed, 1e-6) / Math.max(diurnalRatio, 1e-6))))
+
+  // 跃升后相对「该小时正常量级」：远超正常→更像投流
+  const afterResid = after / Math.max(hourMed(hAfter), 1e-6)
+  const residOk = Math.exp(-Math.max(0, afterResid - 1.2) / 2.5) // 1.2×内算正常
+
+  // 上升沿：真阶跃（≤3 点）几乎不可能是人体节律缓升
+  const rw = riseWidth(x, jumpI)
+  const gradual = clip01((rw - 2) / 8)
+
+  // 高位持续性：1h 后仍接近跃升后水平 → 供给；快速回落 → 峰值/节律
+  const holdN = 12 // ≈1h
+  const laterFrom = Math.min(x.length - 1, jumpI + holdN)
+  const laterTo = Math.min(x.length, jumpI + holdN * 3)
+  let laterMean = 0
+  let cnt = 0
+  for (let i = laterFrom; i < laterTo; i++) {
+    laterMean += x[i]
+    cnt++
+  }
+  laterMean = cnt ? laterMean / cnt : after
+  const persist = laterMean / Math.max(after, 1e-6) // 1=不衰减
+  // 高持续 → 像投流 → 降低节律分
+  const supplyHold = clip01((persist - 0.45) / 0.4)
+
+  const active =
+    (hAfter >= 11 && hAfter <= 15) || (hAfter >= 18 && hAfter <= 23) ? 1 : 0
+
+  // 节律分高 = 像自然；供给持续则强力拉低
+  return clip01(
+    0.22 * ratioMatch +
+      0.18 * residOk +
+      0.18 * gradual +
+      0.12 * active * ratioMatch +
+      0.3 * (1 - supplyHold)
+  )
+}
+
 /**
  * 计算非自然流量指数（0-100）
  * @param points 按时间升序的快照
@@ -319,6 +420,7 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   if (win.length < MIN_POINTS) return empty('前48h样本不足')
 
   // 速率序列（按实际 Δt 归一到 5min）
+  // 负播放增量（回刷/脏点）整点剔除，不参与形态检测
   const tMs: number[] = []
   const dPlay: number[] = []
   const dDm: number[] = []
@@ -328,31 +430,41 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
     const b = win[i]
     const dtS = (b.created_at - a.created_at) / 1000
     if (dtS <= 0) continue
+    const dP = b.play - a.play
+    if (dP < 0) continue
     const scale = NOMINAL_DT_S / dtS
     tMs.push(b.created_at)
-    dPlay.push((b.play - a.play) * scale)
+    dPlay.push(dP * scale)
     dDm.push((b.video_review - a.video_review) * scale)
     dCmt.push((b.comment - a.comment) * scale)
   }
   const n = dPlay.length
   if (n < MIN_POINTS - 2) return empty('增量点不足')
 
-  const med = median(dPlay) || 1
-  // 冷启动：跳过发布脉冲峰值及其衰减段（不再用固定 1h）
-  const start = coldStartEnd(dPlay, tMs)
+  // 3 点中值滤波：形态检测用滤波序列，超额积分仍用原速率（保能量）
+  const xRaw = dPlay
+  const x = medianFilter3(dPlay)
 
-  const { jumpR, jumpI, cliffR, cliffI } = detectStep(dPlay, start, 3, med)
-  const plat = plateauScore(dPlay, Math.max(start, jumpI), 6)
-  const excess = excessRatio(dPlay, tMs)
-  const accel = accelSpike(dPlay)
-  const syncDm = corrSeries(dPlay, dDm)
-  const syncCmt = corrSeries(dPlay, dCmt)
-  const rw = riseWidth(dPlay, jumpI)
+  const med = median(x) || 1
+  // 冷启动：跳过发布脉冲峰值及其衰减段（不再用固定 1h）
+  const start = coldStartEnd(x, tMs)
+
+  const { jumpR, jumpI, cliffR, cliffI } = detectStep(x, start, 3, med)
+  const plat = plateauScore(x, Math.max(start, jumpI), 6)
+  const excess = excessRatio(xRaw, tMs)
+  const accel = accelSpike(x)
+  const syncDm = corrSeries(x, medianFilter3(dDm))
+  const syncCmt = corrSeries(x, medianFilter3(dCmt))
+  const rw = riseWidth(x, jumpI)
 
   const jumpHour = jumpI >= 0 && jumpI < n ? toLocalHour(tMs[jumpI]) : -1
   const activeHour = jumpHour >= 12 && jumpHour <= 14 ? 1 : jumpHour >= 18 && jumpHour <= 23 ? 1 : 0
   const slowRise = rw >= 8 ? 1 : 0
-  const rhythm = 0.5 * activeHour + 0.5 * slowRise
+  // 节律：缓升 + 活跃时段 + 日节律可解释度
+  const diurnalScore = jumpI >= 0 ? diurnalExplainScore(x, tMs, jumpI, 3) : 0
+  const rhythm = clip01(
+    0.3 * (0.5 * activeHour + 0.5 * slowRise) + 0.7 * diurnalScore
+  )
 
   // 子分 0-1（跃升/断崖同时看倍率与是否达到中位数量级）
   const jS = clip01((jumpR - 1.2) / 3.5)
@@ -363,11 +475,12 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   const pS = clip01(Math.max(plat.score / 1.5, 0.55 * platDur + 0.25 * platDecayS + 0.2 * jS * platDur))
   const eS = clip01(excess / 0.2)
   const aS = clip01(accel / 12)
-  const stepS = clip01((1 - Math.min(rw, 16) / 16) * jS)
+  // 上升沿：滤波后仍短才算真阶跃；缓升（≥6 点）大幅降低阶跃分
+  const stepS = clip01((1 - Math.min(rw, 16) / 16) * jS * (1 - 0.85 * diurnalScore))
 
-  // 三线共跳（同样从冷启动后起算）
-  const dmStep = detectStep(dDm, start, 3, median(dDm) || 1)
-  const cmtStep = detectStep(dCmt, start, 3, median(dCmt) || 1)
+  // 三线共跳（滤波后，同样从冷启动后起算）
+  const dmStep = detectStep(medianFilter3(dDm), start, 3, median(dDm) || 1)
+  const cmtStep = detectStep(medianFilter3(dCmt), start, 3, median(dCmt) || 1)
   const coJump =
     jumpI >= 0 &&
     ((dmStep.jumpI >= 0 && Math.abs(dmStep.jumpI - jumpI) <= 6) ||
@@ -388,21 +501,26 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
 
   // 综合：形状 40% + 超额 35% + 辅助 15% + 共动 10%
   let combined = 0.4 * shape + 0.35 * excessPart + 0.15 * aux + 0.1 * co
-  // 节律惩罚：缓升 + 活跃时段 → 降权
-  const rhythmPenalty = 0.3 * rhythm
+  // 节律惩罚：可解释度越高惩罚越大
+  const rhythmPenalty = 0.45 * rhythm
   combined *= 1 - rhythmPenalty
 
   // 强规则抬升 / 压低
   let score = combined * 100
   // 典型投流三件套：阶跃 + 持续高位 + 断崖（上升沿允许到 4 个采样点 ≈20min）
-  const stepCliffCombo = jumpR >= 2.5 && rw <= 4 && cliffR >= 2.5
+  // 日节律可解释度高时禁止强抬升
+  const stepCliffCombo = jumpR >= 2.5 && rw <= 4 && cliffR >= 2.5 && diurnalScore < 0.55
   // 阶跃 + 长高台（哪怕断崖较缓，也是持续供给）
-  const stepPlateauCombo = jumpR >= 2.2 && plat.len >= 48 && plat.decay >= 0.55 && plat.score >= 1.2
+  const stepPlateauCombo =
+    jumpR >= 2.2 && plat.len >= 48 && plat.decay >= 0.55 && plat.score >= 1.2 && diurnalScore < 0.55
   const strongBoost = stepCliffCombo || stepPlateauCombo
-  const strongNatural = jumpR < 2 && cliffR < 2 && rhythm >= 0.75
+  const strongNatural = (jumpR < 2 && cliffR < 2 && rhythm >= 0.75) || diurnalScore >= 0.75
   if (strongBoost) score = Math.min(100, score + 15)
+  if (stepCliffCombo && jumpR >= 3 && cliffR >= 2.5 && rw <= 3) {
+    score = Math.min(100, score + 8) // 干净的阶跃+断崖（滤波后短上升沿）
+  }
   if (stepPlateauCombo && !stepCliffCombo) score = Math.min(100, score + 6)
-  if (strongNatural) score = Math.max(0, score - 15)
+  if (strongNatural) score = Math.max(0, score - 18)
   score = Math.round(Math.max(0, Math.min(100, score)))
 
   const evidence: BoostIndexEvidence[] = []
@@ -473,6 +591,7 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
       plateauScore: plat.score,
       plateauLen: plat.len,
       excessRatio: excess,
+      diurnalScore,
     },
   }
 }
