@@ -5,8 +5,9 @@ import { DB_PATH } from './config.js'
 import { logger } from './logger.js'
 import type {
   MonitorTask, VideoRow, VideoHistoryRow, UpMetrics, TaskType,
-  UpDailyStat, UpMonthlyTrend, UpDurationDist, VideoMetrics,
+  UpDailyStat, UpMonthlyTrend, UpDurationDist, VideoMetrics, VideoBoostIndexRow,
 } from './types.js'
+import { computeBoostIndex, BOOST_ALGO_VERSION } from './analytics/boostIndex.js'
 
 let db: SqliteDB | null = null
 
@@ -152,6 +153,37 @@ function migrate(d: SqliteDB): void {
       sample_count  INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS video_boost_index (
+      bvid            TEXT PRIMARY KEY,
+      score           INTEGER NOT NULL DEFAULT 0,
+      level           TEXT NOT NULL DEFAULT 'low',
+      level_text      TEXT NOT NULL DEFAULT '',
+      sample_count    INTEGER NOT NULL DEFAULT 0,
+      window_hours    INTEGER NOT NULL DEFAULT 48,
+      shape_score     INTEGER NOT NULL DEFAULT 0,
+      excess_score    INTEGER NOT NULL DEFAULT 0,
+      aux_score       INTEGER NOT NULL DEFAULT 0,
+      co_score        INTEGER NOT NULL DEFAULT 0,
+      rhythm_penalty  INTEGER NOT NULL DEFAULT 0,
+      jump_r          REAL NOT NULL DEFAULT 0,
+      cliff_r         REAL NOT NULL DEFAULT 0,
+      rise_width      INTEGER NOT NULL DEFAULT 0,
+      plateau_score   REAL NOT NULL DEFAULT 0,
+      plateau_len     INTEGER NOT NULL DEFAULT 0,
+      excess_ratio    REAL NOT NULL DEFAULT 0,
+      evidence_json   TEXT NOT NULL DEFAULT '[]',
+      insufficient    TEXT NOT NULL DEFAULT '',
+      computed_at     INTEGER NOT NULL DEFAULT 0,
+      history_end_at  INTEGER NOT NULL DEFAULT 0,
+      history_count   INTEGER NOT NULL DEFAULT 0,
+      algo_version    INTEGER NOT NULL DEFAULT 1,
+      compute_bucket  INTEGER NOT NULL DEFAULT 0,
+      created_at      INTEGER NOT NULL DEFAULT 0,
+      updated_at      INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_boost_score ON video_boost_index(score DESC);
+    CREATE INDEX IF NOT EXISTS idx_boost_updated ON video_boost_index(updated_at);
+
     CREATE TABLE IF NOT EXISTS dynamics (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       dynamic_id    TEXT NOT NULL,
@@ -291,6 +323,7 @@ export function deleteTask(id: number): void {
       for (const b of bvids) {
         d.prepare('DELETE FROM video_history WHERE bvid = ?').run(b.bvid)
         d.prepare('DELETE FROM video_metrics WHERE bvid = ?').run(b.bvid)
+        d.prepare('DELETE FROM video_boost_index WHERE bvid = ?').run(b.bvid)
       }
       d.prepare('DELETE FROM videos WHERE mid = ?').run(task.target)
       d.prepare('DELETE FROM up_history WHERE mid = ?').run(task.target)
@@ -302,6 +335,7 @@ export function deleteTask(id: number): void {
     } else {
       d.prepare('DELETE FROM video_history WHERE bvid = ?').run(task.target)
       d.prepare('DELETE FROM video_metrics WHERE bvid = ?').run(task.target)
+      d.prepare('DELETE FROM video_boost_index WHERE bvid = ?').run(task.target)
       d.prepare('DELETE FROM videos WHERE bvid = ?').run(task.target)
     }
     d.prepare('DELETE FROM monitor_tasks WHERE id = ?').run(id)
@@ -427,6 +461,7 @@ export function writeVideoSnapshot(input: VideoSnapshotInput, now = Date.now()):
         updated_at = excluded.updated_at
     `).run({ ...input, page_count: pageCount, updated_at: now })
     recomputeVideoMetrics(input.bvid, now)
+    maybeRecomputeVideoBoostIndex(input.bvid, now)
     return { changed: isChanged }
   })
   return tx()
@@ -608,7 +643,10 @@ export function recomputeUpCaches(mid: string, now: number): void {
 
   // 受影响视频的 video_metrics
   const bvids = d.prepare('SELECT bvid FROM videos WHERE mid = ?').all(mid) as { bvid: string }[]
-  for (const b of bvids) recomputeVideoMetrics(b.bvid, now)
+  for (const b of bvids) {
+    recomputeVideoMetrics(b.bvid, now)
+    maybeRecomputeVideoBoostIndex(b.bvid, now)
+  }
 }
 
 function recomputeMonthlyTrend(mid: string): void {
@@ -718,6 +756,151 @@ export function listVideoHistoryLeading(bvid: string, hours = 48): VideoHistoryR
     .all(bvid, end) as VideoHistoryRow[]
 }
 
+// ── 非自然流量指数缓存 ────────────────────────────────────────
+// 6h 时间分桶：首桶约收满 6h 数据后首算；此后每满 6h 一桶；48h 窗口满后冻结。
+// 生命周期约 8 次计算（6/12/…/48h），用 first_seen+k*6h 对齐，吸收 5min±抖动。
+
+const BOOST_BUCKET_MS = 6 * 3600 * 1000
+const BOOST_WINDOW_MS = 48 * 3600 * 1000
+/** 首桶容忍：约 5.4h 即可开算（时间波动；标称 6h） */
+const BOOST_FIRST_SPAN_MS = Math.floor(BOOST_BUCKET_MS * 0.9)
+
+export function getVideoBoostIndex(bvid: string): VideoBoostIndexRow | undefined {
+  return getDb().prepare('SELECT * FROM video_boost_index WHERE bvid = ?').get(bvid) as
+    | VideoBoostIndexRow
+    | undefined
+}
+
+export function upsertVideoBoostIndex(row: VideoBoostIndexRow): void {
+  getDb()
+    .prepare(
+      `INSERT INTO video_boost_index (
+        bvid, score, level, level_text, sample_count, window_hours,
+        shape_score, excess_score, aux_score, co_score, rhythm_penalty,
+        jump_r, cliff_r, rise_width, plateau_score, plateau_len, excess_ratio,
+        evidence_json, insufficient, computed_at, history_end_at, history_count,
+        algo_version, compute_bucket, created_at, updated_at
+      ) VALUES (
+        @bvid, @score, @level, @level_text, @sample_count, @window_hours,
+        @shape_score, @excess_score, @aux_score, @co_score, @rhythm_penalty,
+        @jump_r, @cliff_r, @rise_width, @plateau_score, @plateau_len, @excess_ratio,
+        @evidence_json, @insufficient, @computed_at, @history_end_at, @history_count,
+        @algo_version, @compute_bucket, @created_at, @updated_at
+      )
+      ON CONFLICT(bvid) DO UPDATE SET
+        score=excluded.score, level=excluded.level, level_text=excluded.level_text,
+        sample_count=excluded.sample_count, window_hours=excluded.window_hours,
+        shape_score=excluded.shape_score, excess_score=excluded.excess_score,
+        aux_score=excluded.aux_score, co_score=excluded.co_score,
+        rhythm_penalty=excluded.rhythm_penalty,
+        jump_r=excluded.jump_r, cliff_r=excluded.cliff_r, rise_width=excluded.rise_width,
+        plateau_score=excluded.plateau_score, plateau_len=excluded.plateau_len,
+        excess_ratio=excluded.excess_ratio,
+        evidence_json=excluded.evidence_json, insufficient=excluded.insufficient,
+        computed_at=excluded.computed_at, history_end_at=excluded.history_end_at,
+        history_count=excluded.history_count, algo_version=excluded.algo_version,
+        compute_bucket=excluded.compute_bucket, updated_at=excluded.updated_at`
+    )
+    .run(row)
+}
+
+/**
+ * 是否到了该重算的时间桶。
+ * - 首算：数据跨度 ≥ ~6h（0.95*6h 容忍抖动）
+ * - 其后：floor(span/6h) 桶号大于已算桶号
+ * - 48h 窗口满且 algo 未变：冻结，不再算
+ */
+export function shouldRecomputeBoost(
+  existing: VideoBoostIndexRow | undefined,
+  firstTs: number,
+  lastTs: number,
+  force = false
+): { ok: boolean; bucket: number; reason: string } {
+  const span = Math.max(0, lastTs - firstTs)
+  const bucket = Math.floor(span / BOOST_BUCKET_MS)
+  if (force) return { ok: true, bucket, reason: 'force' }
+  if (!existing || existing.algo_version !== BOOST_ALGO_VERSION) {
+    if (span < BOOST_FIRST_SPAN_MS) {
+      return { ok: false, bucket, reason: 'wait_first_bucket' }
+    }
+    return { ok: true, bucket: Math.max(bucket, 1), reason: existing ? 'algo_version' : 'first' }
+  }
+  if (span >= BOOST_WINDOW_MS) {
+    return { ok: false, bucket, reason: 'window_frozen' }
+  }
+  if (bucket <= existing.compute_bucket) {
+    return { ok: false, bucket, reason: 'same_bucket' }
+  }
+  return { ok: true, bucket, reason: 'next_bucket' }
+}
+
+/**
+ * 重算并写入非自然流量指数缓存。
+ * @param force 忽略 6h 桶与冻结（删点/手动刷新）
+ */
+export function recomputeVideoBoostIndex(bvid: string, now = Date.now(), force = false): VideoBoostIndexRow | undefined {
+  const d = getDb()
+  const hist = listVideoHistoryLeading(bvid, 48)
+  const existing = getVideoBoostIndex(bvid)
+  if (hist.length === 0) {
+    if (existing) d.prepare('DELETE FROM video_boost_index WHERE bvid = ?').run(bvid)
+    return undefined
+  }
+  const firstTs = hist[0].created_at
+  const lastTs = hist[hist.length - 1].created_at
+  const gate = shouldRecomputeBoost(existing, firstTs, lastTs, force)
+  if (!gate.ok) return existing
+
+  const r = computeBoostIndex(
+    hist.map((x) => ({
+      play: x.play,
+      video_review: x.video_review,
+      comment: x.comment,
+      created_at: x.created_at,
+    }))
+  )
+  const row: VideoBoostIndexRow = {
+    bvid,
+    score: r.score,
+    level: r.level,
+    level_text: r.levelText,
+    sample_count: r.sampleCount,
+    window_hours: r.windowHours,
+    shape_score: r.parts.shape,
+    excess_score: r.parts.excess,
+    aux_score: r.parts.aux,
+    co_score: r.parts.co,
+    rhythm_penalty: r.parts.rhythmPenalty,
+    jump_r: r.features?.jumpR ?? 0,
+    cliff_r: r.features?.cliffR ?? 0,
+    rise_width: r.features?.riseWidth ?? 0,
+    plateau_score: r.features?.plateauScore ?? 0,
+    plateau_len: r.features?.plateauLen ?? 0,
+    excess_ratio: r.features?.excessRatio ?? 0,
+    evidence_json: JSON.stringify(r.evidence || []),
+    insufficient: r.insufficient || '',
+    computed_at: now,
+    history_end_at: lastTs,
+    history_count: hist.length,
+    algo_version: BOOST_ALGO_VERSION,
+    compute_bucket: gate.bucket,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+  }
+  // 若接口返回了原始特征则尽量填（computeBoostIndex 当前不导出特征，保留列供扩展）
+  upsertVideoBoostIndex(row)
+  return row
+}
+
+/** 快照写入/删点后的挂钩：仅在对应 6h 桶到点时真正计算 */
+export function maybeRecomputeVideoBoostIndex(bvid: string, now = Date.now()): void {
+  try {
+    recomputeVideoBoostIndex(bvid, now, false)
+  } catch {
+    // 派生缓存失败不阻塞主流程
+  }
+}
+
 export function listUpDailyStats(mid: string): UpDailyStat[] {
   return getDb().prepare('SELECT * FROM up_daily_stats WHERE mid = ? ORDER BY date ASC').all(mid) as UpDailyStat[]
 }
@@ -810,6 +993,8 @@ export function deleteHistoryPoint(kind: HistoryKind, id: number): { deleted: bo
       if (!target) return false
       d.prepare('DELETE FROM video_history WHERE id = ?').run(id)
       recomputeVideoMetrics(target, Date.now())
+      // 删窗口内脏点后强制重算指数（不受 6h 桶限制）
+      recomputeVideoBoostIndex(target, Date.now(), true)
       return true
     }
     if (kind === 'dynamic') {

@@ -95,6 +95,36 @@ export interface VideoMetrics {
   sample_count: number
 }
 
+/** 非自然流量指数缓存（一 bvid 一行） */
+export interface VideoBoostIndexRow {
+  bvid: string
+  score: number
+  level: string
+  level_text: string
+  sample_count: number
+  window_hours: number
+  shape_score: number
+  excess_score: number
+  aux_score: number
+  co_score: number
+  rhythm_penalty: number
+  jump_r: number
+  cliff_r: number
+  rise_width: number
+  plateau_score: number
+  plateau_len: number
+  excess_ratio: number
+  evidence_json: string
+  insufficient: string
+  computed_at: number
+  history_end_at: number
+  history_count: number
+  algo_version: number
+  compute_bucket: number
+  created_at: number
+  updated_at: number
+}
+
 export interface DynamicRow {
   id: number
   dynamic_id: string

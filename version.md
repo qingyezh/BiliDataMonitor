@@ -1,5 +1,16 @@
 # 版本记录
 
+## v0.2.2.17 (2026-09-26)
+
+- feat: 非自然流量指数入库缓存 `video_boost_index`
+  - 一 bvid 一行：score/level/子分/原始特征/evidence_json/algo_version/compute_bucket
+  - **6h 时间分桶**重算：首算约收满 6h 数据（容差 0.9×6h），此后每满 6h 一桶，约 8 次/48h 窗口
+  - 窗口（首点起 48h）满且 algo_version 未变则**冻结**，不再随 5min 轮询重算
+  - 门控吸收 5min±抖动：按 `first_seen` 与实际时间跨度分桶，不用点数×5min
+  - 删任务/删视频同步删缓存；删窗口内异常点后 force 重算
+  - detail API 优先读缓存，`?boost_recalc=1` 强制重算
+  - 本地用服务器库**副本**验证（原库未改动）
+
 ## v0.2.2.16 (2026-09-26)
 
 - feat: 非自然流量指数卡片移至视频曲线图下方

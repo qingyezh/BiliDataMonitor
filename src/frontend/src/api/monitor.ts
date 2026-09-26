@@ -167,6 +167,11 @@ export interface BoostIndex {
   }
   evidence: BoostIndexEvidence[]
   insufficient?: string
+  /** true=读 6h 桶缓存 */
+  cached?: boolean
+  computedAt?: number
+  algoVersion?: number
+  computeBucket?: number
 }
 
 export interface VideoDetail {

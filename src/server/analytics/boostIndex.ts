@@ -34,11 +34,23 @@ export interface BoostIndexResult {
   evidence: BoostIndexEvidence[]
   /** 数据不足时的说明 */
   insufficient?: string
+  /** 原始特征（便于入库与调参） */
+  features?: {
+    jumpR: number
+    cliffR: number
+    riseWidth: number
+    plateauScore: number
+    plateauLen: number
+    excessRatio: number
+  }
 }
 
 const WINDOW_MS = 48 * 3600 * 1000
 const NOMINAL_DT_S = 300
 const MIN_POINTS = 24
+
+/** 算法版本：公式/阈值变更时 +1，缓存行将触发重算 */
+export const BOOST_ALGO_VERSION = 1
 
 function median(xs: number[]): number {
   if (!xs.length) return 0
@@ -407,5 +419,13 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
       rhythmPenalty: Math.round(rhythmPenalty * 100),
     },
     evidence,
+    features: {
+      jumpR,
+      cliffR,
+      riseWidth: rw,
+      plateauScore: plat.score,
+      plateauLen: plat.len,
+      excessRatio: excess,
+    },
   }
 }
