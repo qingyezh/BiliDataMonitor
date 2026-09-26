@@ -50,9 +50,10 @@ const NOMINAL_DT_S = 300
 const MIN_POINTS = 24
 
 /** 算法版本：公式/阈值变更时 +1，缓存行将触发重算
- *  v2: 冷启动段排除 + 跃升/断崖绝对量门槛，修复低基数假跃升
+ *  v2: 冷启动截断 + 绝对量门槛，修复低基数假跃升
+ *  v3: 高位平台须高于中位（排除尾部低平段）；阶跃+长高台+断崖 组合加分
  */
-export const BOOST_ALGO_VERSION = 2
+export const BOOST_ALGO_VERSION = 3
 
 function median(xs: number[]): number {
   if (!xs.length) return 0
@@ -143,6 +144,11 @@ function plateauScore(x: number[], start: number, minLen = 6): {
 } {
   const n = x.length
   if (start < 0 || n < minLen * 2) return { score: 0, len: 0, decay: 0 }
+  const med = median(x) || 1
+  // 高位门槛：须高于序列中位，且不低于冷启动后局部峰值的 20%
+  let localPeak = 0
+  for (let t = Math.max(0, start); t < n; t++) localPeak = Math.max(localPeak, x[t])
+  const highGate = Math.max(med, 0.2 * localPeak, 1)
   let best = 0
   let bestLen = 0
   let bestDecay = 0
@@ -157,7 +163,7 @@ function plateauScore(x: number[], start: number, minLen = 6): {
       for (let t = i + half; t < j; t++) sr += x[t]
       const muL = sl / half
       const muR = sr / Math.max(1, j - i - half)
-      if (muL > 0.5 && muR / muL >= 0.55) j++
+      if (muL >= highGate && muR / muL >= 0.55) j++
       else break
     }
     const length = j - i
@@ -170,8 +176,8 @@ function plateauScore(x: number[], start: number, minLen = 6): {
       const muL = sl / half
       const muR = sr / Math.max(1, j - i - half)
       const decay = muR / Math.max(muL, 1e-6)
-      if (decay >= 0.55 && muL > 0.5) {
-        const med = median(x) || 1
+      if (decay >= 0.55 && muL >= highGate) {
+        // 强度：相对中位的高度 × 时长占比（高而长的台更像持续供给）
         const strength = (muL / med) * (length / n)
         if (strength > best) {
           best = strength
@@ -351,7 +357,10 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   // 子分 0-1（跃升/断崖同时看倍率与是否达到中位数量级）
   const jS = clip01((jumpR - 1.2) / 3.5)
   const cS = clip01((cliffR - 1.2) / 3.5)
-  const pS = clip01(plat.score / 1.5)
+  // 高位平台：强度（高度×时长）与衰减比共同计分
+  const platDur = clip01(plat.len / 96) // ≈8h 记满分时长
+  const platDecayS = clip01((plat.decay - 0.55) / 0.45)
+  const pS = clip01(Math.max(plat.score / 1.5, 0.55 * platDur + 0.25 * platDecayS + 0.2 * jS * platDur))
   const eS = clip01(excess / 0.2)
   const aS = clip01(accel / 12)
   const stepS = clip01((1 - Math.min(rw, 16) / 16) * jS)
@@ -385,9 +394,14 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
 
   // 强规则抬升 / 压低
   let score = combined * 100
-  const strongBoost = jumpR >= 3 && rw <= 2 && cliffR >= 3
+  // 典型投流三件套：阶跃 + 持续高位 + 断崖（上升沿允许到 4 个采样点 ≈20min）
+  const stepCliffCombo = jumpR >= 2.5 && rw <= 4 && cliffR >= 2.5
+  // 阶跃 + 长高台（哪怕断崖较缓，也是持续供给）
+  const stepPlateauCombo = jumpR >= 2.2 && plat.len >= 48 && plat.decay >= 0.55 && plat.score >= 1.2
+  const strongBoost = stepCliffCombo || stepPlateauCombo
   const strongNatural = jumpR < 2 && cliffR < 2 && rhythm >= 0.75
-  if (strongBoost) score = Math.min(100, score + 12)
+  if (strongBoost) score = Math.min(100, score + 15)
+  if (stepPlateauCombo && !stepCliffCombo) score = Math.min(100, score + 6)
   if (strongNatural) score = Math.max(0, score - 15)
   score = Math.round(Math.max(0, Math.min(100, score)))
 
