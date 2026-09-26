@@ -106,7 +106,8 @@ function coldStartEnd(x: number[], tMs: number[]): number {
 }
 
 /**
- * 小时效应 s_h：仅用 searchStart 之前样本的分时中位，避免投放段污染。
+ * 小时效应 s_h：用分时 **30% 分位** 而非中位，避免被事件自身/投放段抬高基线。
+ * 仅用 searchStart 之前样本；不足 6 个小时桶时用全序列 P30（仍抗尖峰）。
  */
 function hourScaleMap(x: number[], tMs: number[], searchStart: number): Map<number, number> {
   const byHour = new Map<number, number[]>()
@@ -125,15 +126,19 @@ function hourScaleMap(x: number[], tMs: number[], searchStart: number): Map<numb
       byHour.set(h, arr)
     }
   }
+  const p30 = (arr: number[]) => {
+    const s = [...arr].sort((a, b) => a - b)
+    return s[Math.floor(s.length * 0.3)] || s[0] || 1
+  }
   const scales = new Map<number, number>()
   const vals: number[] = []
   for (const [h, arr] of byHour) {
-    const m = median(arr) || 1
+    const m = p30(arr) || 1
     scales.set(h, m)
     vals.push(m)
   }
   const gm = vals.length ? median(vals) : 1
-  for (const [h, m] of scales) scales.set(h, m / (gm || 1))
+  for (const [h, m] of scales) scales.set(h, Math.min(m / (gm || 1), 3))
   return scales
 }
 
@@ -531,8 +536,16 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
 
   const { jumpR, jumpI, cliffR, cliffI } = detectInX()
   const plat = plateauScore(x, Math.max(start, jumpI), 6)
+  const rw = riseWidth(x, jumpI)
 
-  // 残差闸门：去小时效应后，跃升是否仍显著（用于给 jS/stepS 打折）
+  const jumpHour = jumpI >= 0 && jumpI < n ? toLocalHour(tMs[jumpI]) : -1
+  const activeHour = jumpHour >= 12 && jumpHour <= 14 ? 1 : jumpHour >= 18 && jumpHour <= 23 ? 1 : 0
+  const slowRise = rw >= 8 ? 1 : 0
+  const diurnalScore = jumpI >= 0 ? diurnalExplainScore(x, tMs, jumpI, 3) : 0
+  const rhythm = clip01(0.3 * (0.5 * activeHour + 0.5 * slowRise) + 0.7 * diurnalScore)
+
+  // 残差闸门：去小时效应后跃升是否仍显著
+  // 若残差失真（resid 低但 raw 跃升明确且 diurnal 低），不得重罚
   const resid = residualSeries(x, tMs, start)
   let residJumpR = 1
   if (jumpI >= 0 && jumpI < shapeEnd - 3) {
@@ -541,21 +554,19 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
     const afterR = winMean(resid, jumpI, 3, false)
     residJumpR = afterR / Math.max(beforeR, denR)
   }
-  // 残差闸门通过：残差仍抬升 ≥1.8 且上升沿短
-  const rw = riseWidth(x, jumpI)
-  const residGate =
-    jumpI >= 0 && residJumpR >= 1.8 && rw <= 5 ? 1 : jumpI >= 0 && residJumpR >= 1.3 ? 0.55 : 0.25
+  const rawJumpOk = jumpR >= 2.0
+  const diurLow = diurnalScore < 0.5
+  let residGate: number
+  if (residJumpR >= 1.8 && rw <= 5) residGate = 1
+  else if (residJumpR >= 1.2) residGate = 0.75
+  else if (diurLow && rawJumpOk) residGate = 0.85 // 残差不可信时以 raw+低节律为准
+  else if (diurLow) residGate = 0.55
+  else residGate = 0.25
 
   const excess = excessRatio(xRaw, tMs)
   const accel = accelSpike(x)
   const syncDm = corrSeries(x, medianFilter3(dDm))
   const syncCmt = corrSeries(x, medianFilter3(dCmt))
-
-  const jumpHour = jumpI >= 0 && jumpI < n ? toLocalHour(tMs[jumpI]) : -1
-  const activeHour = jumpHour >= 12 && jumpHour <= 14 ? 1 : jumpHour >= 18 && jumpHour <= 23 ? 1 : 0
-  const slowRise = rw >= 8 ? 1 : 0
-  const diurnalScore = jumpI >= 0 ? diurnalExplainScore(x, tMs, jumpI, 3) : 0
-  const rhythm = clip01(0.3 * (0.5 * activeHour + 0.5 * slowRise) + 0.7 * diurnalScore)
 
   const jS = clip01((jumpR - 1.2) / 3.5) * residGate
   const cS = clip01((cliffR - 1.2) / 3.5)
