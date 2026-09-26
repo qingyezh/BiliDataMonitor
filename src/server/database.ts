@@ -709,13 +709,18 @@ export function listVideosByMid(mid: string, opts: { sort?: string; order?: stri
   const d = getDb()
   const sortCol = ['play', 'created', 'comment', 'video_review'].includes(opts.sort || '') ? opts.sort : 'play'
   const order = opts.order === 'asc' ? 'ASC' : 'DESC'
-  let sql = 'SELECT * FROM videos WHERE mid = ?'
+  let sql = `
+    SELECT v.*, b.score AS boost_score, b.level AS boost_level
+    FROM videos v
+    LEFT JOIN video_boost_index b ON b.bvid = v.bvid
+    WHERE v.mid = ?
+  `
   const params: unknown[] = [mid]
   if (opts.keyword) {
-    sql += ' AND title LIKE ?'
+    sql += ' AND v.title LIKE ?'
     params.push(`%${opts.keyword}%`)
   }
-  sql += ` ORDER BY ${sortCol} ${order}`
+  sql += ` ORDER BY v.${sortCol} ${order}`
   sql += ' LIMIT ? OFFSET ?'
   params.push(opts.limit ?? 50, opts.offset ?? 0)
   return d.prepare(sql).all(...params) as VideoRow[]

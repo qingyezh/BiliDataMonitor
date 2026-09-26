@@ -26,6 +26,9 @@ export interface VideoRow {
   duration: number
   page_count: number
   updated_at: number
+  /** 来自 video_boost_index，未计算为 null */
+  boost_score?: number | null
+  boost_level?: string | null
 }
 
 export interface VideoHistoryRow {

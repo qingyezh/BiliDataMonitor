@@ -163,6 +163,17 @@
             <template #default="{ row }">{{ formatNum(row.comment) }}</template>
           </el-table-column>
           <el-table-column label="发布时间" width="150" align="center"><template #default="{ row }">{{ formatTimestamp(row.created * 1000) }}</template></el-table-column>
+          <el-table-column label="异常流量指数" width="120" align="center">
+            <template #default="{ row }">
+              <span
+                v-if="row.boost_score != null && row.boost_score >= 0"
+                class="boost-cell"
+                :class="boostLevelClass(row.boost_score)"
+                :title="row.boost_level ? `等级：${row.boost_level}` : ''"
+              >{{ row.boost_score }}</span>
+              <span v-else class="boost-cell boost-none">--</span>
+            </template>
+          </el-table-column>
         </el-table>
         <div style="display: flex; justify-content: flex-end; margin-top: 12px" v-if="videoTotal > videoPageSize">
           <el-pagination
@@ -715,6 +726,12 @@ const videoSortBy = ref('created')
 const videoMetrics = ref<VideoMetrics | null>(null)
 const videoRealtime = ref<{ play: number; danmaku: number; reply: number; page_count: number } | null>(null)
 const videoBoostIndex = ref<BoostIndex | null>(null)
+
+function boostLevelClass(score: number): string {
+  if (score >= 70) return 'boost-high'
+  if (score >= 40) return 'boost-medium'
+  return 'boost-low'
+}
 const videoHistory = ref<VideoHistoryPoint[]>([])
 
 /** 当前分P数：优先 realtime，否则取历史最大值（单P为 1） */
@@ -1493,6 +1510,20 @@ onMounted(async () => {
   flex: 1;
   min-width: 160px;
 }
+.boost-cell {
+  display: inline-block;
+  min-width: 32px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.boost-cell.boost-low { color: #67c23a; background: #f0f9eb; }
+.boost-cell.boost-medium { color: #e6a23c; background: #fdf6ec; }
+.boost-cell.boost-high { color: #f56c6c; background: #fef0f0; }
+.boost-cell.boost-none { color: var(--text-secondary); background: transparent; font-weight: 400; }
+
 .boost-note {
   margin-top: 10px;
   font-size: 11px;

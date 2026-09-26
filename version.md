@@ -1,5 +1,12 @@
 # 版本记录
 
+## v0.2.2.18 (2026-09-26)
+
+- feat: UP主详情「视频排行」新增异常流量指数列
+  - 位于「发布时间」右侧，列名与数值居中
+  - 分数着色：&lt;40 绿 / 40–69 橙 / ≥70 红；未计算显示 `--`
+  - `listVideosByMid` LEFT JOIN `video_boost_index` 返回 `boost_score` / `boost_level`
+
 ## v0.2.2.17 (2026-09-26)
 
 - feat: 非自然流量指数入库缓存 `video_boost_index`
