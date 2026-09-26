@@ -188,6 +188,60 @@ function detectStep(
   return { jumpR, jumpI, cliffR, cliffI }
 }
 
+/**
+ * 长高段（持续供给）：冷启动后连续高水位，覆盖「缓升/中跃升 + 长维持」无断崖形态。
+ */
+function sustainedHighScore(x: number[], start: number, end: number): {
+  score: number
+  len: number
+  height: number
+} {
+  const n = x.length
+  if (n < 24) return { score: 0, len: 0, height: 0 }
+  const from = Math.max(0, Math.min(start, n - 1))
+  const to = Math.max(from + 6, Math.min(end, n))
+  const med = median(x) || 1
+  let localMax = 0
+  for (let t = from; t < to; t++) localMax = Math.max(localMax, x[t])
+  const floor = Math.max(1.5 * med, 0.4 * localMax, 1)
+  let bestLen = 0
+  let bestSum = 0
+  let i = from
+  while (i < to) {
+    if (x[i] < floor) {
+      i++
+      continue
+    }
+    let j = i
+    let sum = 0
+    let gap = 0
+    while (j < to && gap <= 2) {
+      if (x[j] >= floor) {
+        sum += x[j]
+        gap = 0
+      } else {
+        gap++
+      }
+      j++
+    }
+    const len = j - i
+    if (len > bestLen) {
+      bestLen = len
+      bestSum = sum
+    }
+    i = j + 1
+  }
+  if (bestLen < 30) return { score: 0, len: bestLen, height: 0 }
+  const mean = bestSum / Math.max(bestLen, 1)
+  const vsMed = mean / med
+  // 必须明显高于全局中位（自然衰减尾/弱波不算长高段）
+  if (vsMed < 2.2) return { score: 0, len: bestLen, height: vsMed }
+  const durS = clip01(bestLen / 72)
+  const hS = clip01((mean / floor - 1) / 1.0)
+  const score = clip01(0.55 * durS + 0.45 * hS) * clip01((vsMed - 2.0) / 2.5)
+  return { score, len: bestLen, height: vsMed }
+}
+
 function plateauScore(x: number[], start: number, minLen = 6): {
   score: number
   len: number
@@ -572,7 +626,17 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   const cS = clip01((cliffR - 1.2) / 3.5)
   const platDur = clip01(plat.len / 96)
   const platDecayS = clip01((plat.decay - 0.55) / 0.45)
-  const pS = clip01(Math.max(plat.score / 1.5, 0.55 * platDur + 0.25 * platDecayS + 0.2 * jS * platDur))
+  const sust = sustainedHighScore(x, start, shapeEnd)
+  // 长高段只补「缺断崖/缺传统平台」且超额已偏高的中间形态
+  const sustRelevant =
+    jumpR < 2.6 && cliffR < 2.4 && plat.len < 48 && (excess >= 0.145 || jumpR >= 2.3)
+  const pS = clip01(
+    Math.max(
+      plat.score / 1.5,
+      0.55 * platDur + 0.25 * platDecayS + 0.2 * jS * platDur,
+      sustRelevant ? 0.8 * sust.score : 0.12 * sust.score
+    )
+  )
   const eS = clip01(excess / 0.2)
   const aS = clip01(accel / 12)
   const stepS = clip01((1 - Math.min(rw, 16) / 16) * jS * (1 - 0.85 * diurnalScore))
@@ -613,9 +677,18 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
     plat.score >= 1.2 &&
     diurnalScore < 0.55 &&
     residJumpR >= 1.6
-  const strongBoost = stepCliffCombo || stepPlateauCombo
+  // 长高段：仅用于「中等跃升、无断崖」的补充（不与 stepCliff 叠加大额加分）
+  const sustainedCombo =
+    sustRelevant &&
+    sust.score >= 0.45 &&
+    jumpR >= 1.35 &&
+    rw <= 6 &&
+    diurnalScore < 0.65 &&
+    residJumpR >= 1.2
+  const strongBoost = stepCliffCombo || stepPlateauCombo || sustainedCombo
   const strongNatural = (jumpR < 2 && cliffR < 2 && rhythm >= 0.75) || diurnalScore >= 0.75
-  if (strongBoost) score = Math.min(100, score + 15)
+  if (strongBoost) score = Math.min(100, score + 12)
+  if (sustainedCombo && !stepCliffCombo && !stepPlateauCombo) score = Math.min(100, score + 5)
   if (stepCliffCombo && jumpR >= 3 && cliffR >= 2.5 && rw <= 3 && residJumpR >= 2.2) {
     score = Math.min(100, score + 8)
   }
@@ -690,8 +763,8 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
       jumpR,
       cliffR,
       riseWidth: rw,
-      plateauScore: plat.score,
-      plateauLen: plat.len,
+      plateauScore: Math.max(plat.score, sust.score),
+      plateauLen: plat.len || sust.len,
       excessRatio: excess,
       diurnalScore,
       residJumpR,
