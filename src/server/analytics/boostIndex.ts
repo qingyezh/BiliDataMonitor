@@ -49,8 +49,10 @@ const WINDOW_MS = 48 * 3600 * 1000
 const NOMINAL_DT_S = 300
 const MIN_POINTS = 24
 
-/** 算法版本：公式/阈值变更时 +1，缓存行将触发重算 */
-export const BOOST_ALGO_VERSION = 1
+/** 算法版本：公式/阈值变更时 +1，缓存行将触发重算
+ *  v2: 冷启动段排除 + 跃升/断崖绝对量门槛，修复低基数假跃升
+ */
+export const BOOST_ALGO_VERSION = 2
 
 function median(xs: number[]): number {
   if (!xs.length) return 0
@@ -76,12 +78,41 @@ function winMean(xs: number[], i: number, k: number, before: boolean): number {
   return s / (b - a)
 }
 
-function detectStep(x: number[], start: number, k: number): {
+/**
+ * 冷启动结束后下标：首日脉冲峰值后，速率首次降到 earlyMax 的 ratio 以下。
+ * 避免把「发布脉冲的衰减/回弹」当成投流跃升或断崖。
+ */
+function coldStartEnd(x: number[], tMs: number[]): number {
+  const n = x.length
+  if (n < 12) return 0
+  // 前 6h（约 72 桶）内的峰值与起点
+  const earlyN = Math.min(n, 72)
+  let peakIdx = 0
+  for (let i = 1; i < earlyN; i++) if (x[i] > x[peakIdx]) peakIdx = i
+  const earlyMax = x[peakIdx] || 1
+  // 峰值后首次显著回落
+  for (let i = peakIdx; i < n; i++) {
+    if (x[i] < 0.2 * earlyMax) return i
+  }
+  // 全程未回落：跳过至少 2h，最多 25% 序列
+  return Math.min(n, Math.max(24, Math.floor(n * 0.25)))
+}
+
+function detectStep(
+  x: number[],
+  start: number,
+  k: number,
+  med: number
+): {
   jumpR: number
   jumpI: number
   cliffR: number
   cliffI: number
 } {
+  // 分母下限：低基数上的小波动不得放大成数十倍「跃升」
+  const denomFloor = Math.max(1, 0.08 * med)
+  // 绝对量门槛：跃升/断崖两侧至少一侧要达到中位数量级
+  const absGate = Math.max(2 * med, 1)
   let jumpR = 0
   let jumpI = -1
   let cliffR = 0
@@ -89,13 +120,15 @@ function detectStep(x: number[], start: number, k: number): {
   for (let i = Math.max(k, start); i < x.length - k; i++) {
     const before = winMean(x, i, k, true)
     const after = winMean(x, i, k, false)
-    const jr = after / Math.max(before, 1)
-    const cr = before / Math.max(after, 1)
-    if (jr > jumpR) {
+    const jr = after / Math.max(before, denomFloor)
+    const cr = before / Math.max(after, denomFloor)
+    // 跃升：抬升后达到显著量级
+    if (after >= absGate && jr > jumpR) {
       jumpR = jr
       jumpI = i
     }
-    if (cr > cliffR) {
+    // 断崖：从显著高位跌落
+    if (before >= absGate && cr > cliffR) {
       cliffR = cr
       cliffI = i
     }
@@ -299,11 +332,11 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   if (n < MIN_POINTS - 2) return empty('增量点不足')
 
   const med = median(dPlay) || 1
-  // 跳过发布初期约 1h 的冷启动尖峰对 jump 的干扰
-  const start = Math.min(12, Math.floor(n / 10))
+  // 冷启动：跳过发布脉冲峰值及其衰减段（不再用固定 1h）
+  const start = coldStartEnd(dPlay, tMs)
 
-  const { jumpR, jumpI, cliffR, cliffI } = detectStep(dPlay, start, 3)
-  const plat = plateauScore(dPlay, Math.max(0, jumpI), 6)
+  const { jumpR, jumpI, cliffR, cliffI } = detectStep(dPlay, start, 3, med)
+  const plat = plateauScore(dPlay, Math.max(start, jumpI), 6)
   const excess = excessRatio(dPlay, tMs)
   const accel = accelSpike(dPlay)
   const syncDm = corrSeries(dPlay, dDm)
@@ -315,7 +348,7 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   const slowRise = rw >= 8 ? 1 : 0
   const rhythm = 0.5 * activeHour + 0.5 * slowRise
 
-  // 子分 0-1
+  // 子分 0-1（跃升/断崖同时看倍率与是否达到中位数量级）
   const jS = clip01((jumpR - 1.2) / 3.5)
   const cS = clip01((cliffR - 1.2) / 3.5)
   const pS = clip01(plat.score / 1.5)
@@ -323,9 +356,9 @@ export function computeBoostIndex(points: BoostIndexInputPoint[]): BoostIndexRes
   const aS = clip01(accel / 12)
   const stepS = clip01((1 - Math.min(rw, 16) / 16) * jS)
 
-  // 三线共跳
-  const dmStep = detectStep(dDm, start, 3)
-  const cmtStep = detectStep(dCmt, start, 3)
+  // 三线共跳（同样从冷启动后起算）
+  const dmStep = detectStep(dDm, start, 3, median(dDm) || 1)
+  const cmtStep = detectStep(dCmt, start, 3, median(dCmt) || 1)
   const coJump =
     jumpI >= 0 &&
     ((dmStep.jumpI >= 0 && Math.abs(dmStep.jumpI - jumpI) <= 6) ||
