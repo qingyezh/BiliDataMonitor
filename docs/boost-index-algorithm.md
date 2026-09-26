@@ -3,8 +3,27 @@
 > **模块**：`src/server/analytics/boostIndex.ts`  
 > **接口**：`computeBoostIndex(points) → BoostIndexResult`  
 > **API**：`GET /api/video/:bvid/detail` → `data.boostIndex`  
-> **UI**：视频详情页「数据变化趋势」曲线图下方  
-> **版本**：v0.2.2.15+ / 文档 v0.2.2.16
+> **UI**：视频详情页「数据变化趋势」曲线图下方；UP 视频排行「异常流量指数」列  
+> **版本**：算法 **v5.1 / algo_version=6**（文档随 46h 形态窗 + 残差闸门更新）
+
+---
+
+## 0. 版本摘要（v5.1）
+
+| 项 | 说明 |
+|----|------|
+| 分析窗 | 仍取监测序列 **前 48h**（超额积分用全程） |
+| 形态检测窗 | **0–46h**（尾部 **2h 保护带**，消窗口末端伪影） |
+| 主跃升/断崖 | 滤波速率 \(x\) 上（与 v4 一致），绝对量门槛 |
+| 残差闸门 | 去小时效应后倍率作 **门控**，不替代主检测 |
+| 冷启动 | 峰值后降至 \(\max(25\%\cdot peak,\ 1.2\cdot med)\)，且至少约 1h |
+| 负增量 | \(Δplay<0\) 整点剔除；3 点中值滤波 |
+| 存储 | `video_boost_index`，**6h 时间分桶**重算，48h 后冻结；`?boost_recalc=1` / UP「刷新指数」强制重算 |
+
+### 为何需要残差闸门
+
+强日周期下，「凌晨低谷 → 午间高峰」在原始增速上可算出 10×+ 倍率（如 `BV1sjen6QEQ7` 曾报 15.2×）。  
+倍率必须在 **去小时效应的残差** 上复核；若残差失真（小时基线被事件污染）而 **raw 跃升明确且节律低**，则不得重罚。
 
 ---
 
@@ -117,15 +136,21 @@ v^{(C)} = \frac{C_b - C_a}{\Delta t} \times 300
 
 记增量序列长度为 \(n\)，时间戳序列为 \(t_i\)。
 
-### 3.4 冷启动跳过
+### 3.4 冷启动跳过（v5.1）
 
-为避免发布后约 1 小时的粉丝脉冲淹没后续「跃升」检测，形态检测从下标
+为避免发布脉冲与后续日周期混淆：
 
 \[
-s_{\mathrm{start}} = \min\!\left(12,\ \left\lfloor \frac{n}{10} \right\rfloor\right)
+\text{dropTo}=\max(0.25\cdot earlyMax,\ 1.2\cdot \mathrm{median}(x))
 \]
 
-开始（约 12 个采样点 ≈ 1 小时）。
+自峰值后至少约 1h（≥12 点）起，首次满足 \(x_i<\text{dropTo}\) 的下标作为形态搜索起点 `start`。
+
+### 3.5 形态窗与保护带（v5.1）
+
+- 超额积分 \(E\)：**0–48h 全程**  
+- 跃升 / 断崖 / 平台 / 三线共跳：仅在 **`[start, shapeEnd)`**，其中 `shapeEnd` 为 **首点+46h**  
+- 尾部 2h **不参与形态判定**，避免把窗口截断伪影当成「持续供给」
 
 ---
 
@@ -145,33 +170,59 @@ B=[\max(0,i-k),\ \max(1,i))
 A=[i,\ \min(n,i+k))
 \]
 
-### 4.2 跃升倍率 \(J\) 与断崖倍率 \(C\)
+### 4.2 跃升倍率 \(J\) 与断崖倍率 \(C\)（主检测，在滤波速率 \(x\) 上）
 
-对 \(i = s_{\mathrm{start}},\ldots,n-k-1\)：
+对 \(i\) 在 \([start,\ shapeEnd)\) 上（半窗 \(k=3\)）：
 
 \[
-J(i)=\frac{\mathrm{mean}_{\mathrm{after}}(i)}{\max(\mathrm{mean}_{\mathrm{before}}(i),\,1)}
+J(i)=\frac{\mathrm{mean}_{\mathrm{after}}(i)}{\max(\mathrm{mean}_{\mathrm{before}}(i),\ 0.08\cdot\mathrm{median}(x))}
 \]
 
 \[
-C(i)=\frac{\mathrm{mean}_{\mathrm{before}}(i)}{\max(\mathrm{mean}_{\mathrm{after}}(i),\,1)}
+C(i)=\frac{\mathrm{mean}_{\mathrm{before}}(i)}{\max(\mathrm{mean}_{\mathrm{after}}(i),\ 0.08\cdot\mathrm{median}(x))}
 \]
 
-取全局最大：
+**绝对量门槛：** 仅当 \(\mathrm{mean}_{\mathrm{after}}\ge 2\cdot\mathrm{median}(x)\) 才接受为跃升；断崖要求前窗对称达标。
+
+取全局最大得 \(\mathrm{jumpR},\mathrm{cliffR}\) 及对应下标。
+
+### 4.2b 残差闸门（v5.1，防日周期假跃升）
+
+小时效应（**P30**，避免事件抬高基线；\(s_h\) 封顶 3）：
 
 \[
-\mathrm{jumpR}=\max_i J(i),\quad \mathrm{jumpI}=\arg\max_i J(i)
+s_h=\frac{Q_{0.3}\{x_t\mid \mathrm{hour}=h\}}{\mathrm{median}_h\{Q_{0.3}\}}
 \]
+
+残差：
 
 \[
-\mathrm{cliffR}=\max_i C(i),\quad \mathrm{cliffI}=\arg\max_i C(i)
+r_t=\frac{x_t}{s_{\mathrm{hour}(t)}}
 \]
 
-**解读：**
+残差跃升倍率（在同一 jumpI 上算）：
 
-- \(\mathrm{jumpR}\gg 1\)：增速突然抬升（阶跃）  
-- \(\mathrm{cliffR}\gg 1\)：增速突然腰斩（断崖）  
-- 分母 \(\max(\cdot,1)\) 防止零基线把比值炸到无穷大  
+\[
+J_{\mathrm{resid}}=\frac{\mathrm{mean}(r)_{\mathrm{after}}}{\max(\mathrm{mean}(r)_{\mathrm{before}},\ 0.12\cdot\mathrm{median}(r))}
+\]
+
+**门控 \(\mathrm{residGate}\in\{1,0.85,0.75,0.55,0.25\}\)：**
+
+| 条件 | gate |
+|------|------|
+| \(J_{\mathrm{resid}}\ge 1.8\) 且 \(W_{\mathrm{up}}\le 5\) | 1 |
+| \(J_{\mathrm{resid}}\ge 1.2\) | 0.75 |
+| 节律低且 raw \(J\ge 2\)（残差可能失真） | 0.85 |
+| 节律低 | 0.55 |
+| 节律高且残差无跃升 | 0.25 |
+
+\[
+j_S = \mathrm{clip}\Big(\frac{J-1.2}{3.5}\Big)\cdot \mathrm{residGate}
+\]
+
+**解读：**  
+- `BV1sjen6QEQ7` 类「早→午」在残差上倍率塌缩 → 重罚  
+- `BV1Vj8K6DEFM` 类 raw 有跃升但小时基线被污染 → **不重罚**  
 
 ### 4.3 上升沿宽度 \(W_{\mathrm{up}}\)
 
@@ -344,11 +395,11 @@ S_{\mathrm{co}} = \mathrm{clip}_{[0,1]}\!\left(
 
 \[
 S_{\mathrm{shape}} = \mathrm{clip}_{[0,1]}\big(
-0.35\, j_S + 0.25\, p_S + 0.20\, c_S + 0.20\, \mathrm{step}_S
+0.38\, j_S + 0.22\, p_S + 0.22\, c_S + 0.18\, \mathrm{step}_S
 \big)
 \]
 
-**超额分**（直接用 \(e_S\)）
+**超额分**
 
 \[
 S_{\mathrm{excess}} = e_S
@@ -362,11 +413,7 @@ S_{\mathrm{aux}} = \mathrm{clip}_{[0,1]}\big(
 \big)
 \]
 
-**共动分**
-
-\[
-S_{\mathrm{co}} \quad\text{（见 4.7.2）}
-\]
+**共动分** \(S_{\mathrm{co}}\)（见 4.7）
 
 ---
 
@@ -417,12 +464,15 @@ S' = \big(0.4\,S_{\mathrm{shape}} + 0.35\,S_{\mathrm{excess}} + 0.15\,S_{\mathrm
 S_{\mathrm{raw}} = 100 \cdot S'
 \]
 
-### 7.2 强规则修正（可解释的边界行为）
+### 7.2 强规则修正（v5.1：须过残差闸门）
 
 | 规则 | 条件 | 操作 |
 |------|------|------|
-| **强投流** | \(\mathrm{jumpR}\ge 3 \land W_{\mathrm{up}}\le 2 \land \mathrm{cliffR}\ge 3\) | \(S \leftarrow \min(100, S+12)\) |
-| **强自然** | \(\mathrm{jumpR}<2 \land \mathrm{cliffR}<2 \land R\ge 0.75\) | \(S \leftarrow \max(0, S-15)\) |
+| **强投流** | \(J\ge 2.5 \land W\le 4 \land C\ge 2.5 \land \mathrm{diurnal}<0.55 \land J_{\mathrm{resid}}\ge 1.8\) | \(S{+}{=}15\) |
+| **干净阶跃断崖** | 上式且 \(J\ge 3 \land C\ge 2.5 \land W\le 3 \land J_{\mathrm{resid}}\ge 2.2\) | 再 \(+8\) |
+| **阶跃+长台** | \(J\ge 2.2 \land\) 平台 ≥48 点 \(\land J_{\mathrm{resid}}\ge 1.6\) | \(+6\) |
+| **强自然** | 无跃升无断崖且节律高，或 \(\mathrm{diurnal}\ge 0.75\) | \(S{-}{=}18\) |
+| **假跃升抑制** | \(J\ge 2 \land J_{\mathrm{resid}}<1.5\) | 额外 \(-10\) |
 
 对应直观图像：
 
@@ -543,30 +593,20 @@ interface BoostIndexResult {
 
 ---
 
-## 11. 本地验证（28 条 8.20 后前 48h 样本）
+## 11. 本地验证（8.20 后 31 条，v5.1）
 
-来源：原神 / 崩坏：星穹铁道 / 绝区零 官方 UP，监测自发布后数分钟起。
+| 视频 | v4 | v5.1 | 说明 |
+|------|-----|------|------|
+| BV1sjen6QEQ7 | 53 | **25** | 假 15× 跃升消除（jumpR 2.07） |
+| BV1SZhk6HEXw | 42 | **22** | 午间节律压低（已确认合理） |
+| BV1Vj8K6DEFM | 60 | **60** | 残差失真修复后不再误压 |
+| BV1e58P65EmC | 39 | **26** | 下降正常 |
+| BV1sdYZ6dEmq | 33 | **21** | 下降正常 |
+| BV1yjYx6AEp7 | 75 | **76** | 真投流保持 |
+| BV1sAbL6tEEC | 87 | **89** | 强投流保持 |
+| BV13Xew6LE7T | 38 | **36** | 自然衰减保持低分 |
 
-### 11.1 分数分布
-
-| 区间 | 条数 | 典型形态 |
-|------|------|----------|
-| 70–100 | 6 | 阶跃+断崖（如角色 PV 强推） |
-| 50–69 | 7 | 有跃升或持续偏高 |
-| 30–49 | 15 | 平滑衰减 / 直播高体量 |
-
-均值 ≈ 55，中位 ≈ 48（官方账号首日本就强势，低分不会贴近 0）。
-
-### 11.2 对照样例
-
-| 观察 | 样例 | jumpR | cliffR | E | score |
-|------|------|-------|--------|---|-------|
-| 阶跃+断崖 | 沃雅妮莎角色 PV | 23.0 | 12.4 | 0.17 | **95** |
-| 阶跃+断崖 | 绝区零 3.2 版本 PV | 6.5 | 11.0 | 0.17 | **85** |
-| 无阶跃持续偏高 | 4.6 版本 PV | 1.7 | 1.5 | **0.30** | 51 |
-| 平滑衰减 | 7.1 前瞻直播 | 1.5 | 1.3 | 0.13 | **44** |
-
-与人工观察曲线形态一致：**S1 形状族与 S3 超额族互补**，故综合分同时纳入。
+全样本：|Δ|≥5 仅上述 5 条已确认项，其余 26 条均在误差内；≥70 约 2 条；均分 ≈39。
 
 ---
 
