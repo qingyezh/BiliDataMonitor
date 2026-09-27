@@ -56,8 +56,9 @@ const MIN_POINTS = 24
  *  v3: 高位平台定义 + 阶跃/长台/断崖组合加分
  *  v4: 剔负点 + 3 点中值 + 节律可解释度
  *  v5.1 (6): 形态窗 46h 尾部保护带 + 残差闸门（不替代 v4 主检测）
+ *  v5.2 (7): 长高段评分（缓升/中跃升 + 持续高水位、无断崖）+ 超额并列门槛
  */
-export const BOOST_ALGO_VERSION = 6
+export const BOOST_ALGO_VERSION = 7
 
 /** 形态检测窗口（小时）：48h 内留 2h 保护带 */
 const SHAPE_WINDOW_H = 46
