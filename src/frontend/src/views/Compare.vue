@@ -459,8 +459,8 @@ const cards = ref<Record<string, {
   type: HistoryKind
   target: string
   name: string
-  summary?: { label: string; value: string }[]
-  delta24?: { label: string; text: string; color: string; insuff?: boolean }[]
+  summary?: { label: string; value: string; raw: number | null }[]
+  delta24?: { label: string; text: string; color: string; insuff?: boolean; raw: number | null }[]
 }>>({})
 
 /** 当前登录用户名（别名按账号分桶） */
@@ -680,8 +680,8 @@ type TableRow = {
   inheritName?: string
   mergeMode?: MergeMode
   memberCount?: number
-  summary?: { label: string; value: string }[]
-  delta24?: { label: string; text: string; color: string; insuff?: boolean }[]
+  summary?: { label: string; value: string; raw?: number | null }[]
+  delta24?: { label: string; text: string; color: string; insuff?: boolean; raw?: number | null }[]
 }
 
 const displayItems = computed(() => buildDisplayItems(targets.value, groups.value))
@@ -747,24 +747,23 @@ const tableRows = computed<TableRow[]>(() => {
   return rows
 })
 
-function parseNum(s: string | undefined): number | null {
-  if (!s || s === '—') return null
-  const n = Number(String(s).replace(/,/g, ''))
-  return Number.isFinite(n) ? n : null
+/** 聚合用原始数值；禁止从 formatNum 的「万/千」字符串反解析 */
+function pickRaw(n: number | null | undefined): number | null {
+  return n === null || n === undefined || Number.isNaN(n) ? null : n
 }
 
 function aggregateSummary(memberKeys: string[], mode: MergeMode) {
   const fields = metricFieldsOf(targets.value.find(x => targetKeyOf(x) === memberKeys[0])?.type || 'video')
   return fields.map((f, i) => {
     const nums = memberKeys
-      .map(k => parseNum(cards.value[k]?.summary?.[i]?.value))
+      .map(k => pickRaw(cards.value[k]?.summary?.[i]?.raw))
       .filter((n): n is number => n !== null)
-    if (!nums.length) return { label: f.label, value: '—' }
+    if (!nums.length) return { label: f.label, value: '—', raw: null }
     let v = nums.reduce((a, b) => a + b, 0)
     if (mode === 'avg') v = v / nums.length
     else if (mode === 'max') v = Math.max(...nums)
     else if (mode === 'min') v = Math.min(...nums)
-    return { label: f.label, value: formatNum(v) }
+    return { label: f.label, value: formatNum(v), raw: v }
   })
 }
 
@@ -773,9 +772,9 @@ function aggregateDelta24(memberKeys: string[], mode: MergeMode) {
   return fields.map((f, i) => {
     const items = memberKeys
       .map(k => cards.value[k]?.delta24?.[i])
-      .filter(Boolean) as { label: string; text: string; color: string; insuff?: boolean }[]
-    const nums = items.map(d => parseNum(d.text)).filter((n): n is number => n !== null)
-    if (!nums.length) return { label: f.label, text: '—', color: 'var(--text-secondary)' }
+      .filter(Boolean) as { label: string; text: string; color: string; insuff?: boolean; raw?: number | null }[]
+    const nums = items.map(d => pickRaw(d.raw)).filter((n): n is number => n !== null)
+    if (!nums.length) return { label: f.label, text: '—', color: 'var(--text-secondary)', raw: null }
     let v = nums.reduce((a, b) => a + b, 0)
     if (mode === 'avg') v = v / nums.length
     else if (mode === 'max') v = Math.max(...nums)
@@ -783,7 +782,7 @@ function aggregateDelta24(memberKeys: string[], mode: MergeMode) {
     const color = v > 0 ? '#67c23a' : v < 0 ? '#f56c6c' : 'var(--text-secondary)'
     const sign = v > 0 ? '+' : ''
     const insuff = items.some(d => d.insuff)
-    return { label: f.label, text: `${sign}${formatNum(v)}`, color, insuff }
+    return { label: f.label, text: `${sign}${formatNum(v)}`, color, insuff, raw: v }
   })
 }
 
@@ -794,12 +793,12 @@ const mergeModeLabel = computed(() => {
   return [...modes].map(m => label[m] || m).join('/')
 })
 
-function summaryAt(row: { summary?: { label: string; value: string }[] }, idx: number): string {
+function summaryAt(row: { summary?: { label: string; value: string; raw?: number | null }[] }, idx: number): string {
   return row.summary?.[idx]?.value ?? '—'
 }
 
 function deltaAt(
-  row: { delta24?: { label: string; text: string; color: string; insuff?: boolean }[] },
+  row: { delta24?: { label: string; text: string; color: string; insuff?: boolean; raw?: number | null }[] },
   idx: number
 ) {
   return row.delta24?.[idx]
@@ -829,7 +828,7 @@ function metricFieldsOf(type: HistoryKind): { label: string; key: string }[] {
 }
 
 /** 指标：优先用历史末点（三项齐全）；无历史时退回 meta */
-function summarize(type: HistoryKind, meta: any, points: CleanPoint[]): { label: string; value: string }[] {
+function summarize(type: HistoryKind, meta: any, points: CleanPoint[]): { label: string; value: string; raw: number | null }[] {
   const fields = metricFieldsOf(type)
   const last = points?.length ? points[points.length - 1] : null
   return fields.map(f => {
@@ -844,14 +843,15 @@ function summarize(type: HistoryKind, meta: any, points: CleanPoint[]): { label:
         n = meta[f.key]
       }
     }
-    return { label: f.label, value: n === null || n === undefined || Number.isNaN(n) ? '—' : formatNum(n) }
+    const raw = n === null || n === undefined || Number.isNaN(n) ? null : n
+    return { label: f.label, value: raw === null ? '—' : formatNum(raw), raw }
   })
 }
 
-function calcDelta24Multi(points: CleanPoint[], type: HistoryKind): { label: string; text: string; color: string; insuff?: boolean }[] {
+function calcDelta24Multi(points: CleanPoint[], type: HistoryKind): { label: string; text: string; color: string; insuff?: boolean; raw: number | null }[] {
   const fields = metricFieldsOf(type)
   if (!points || points.length < 2) {
-    return fields.map(f => ({ label: f.label, text: '—', color: 'var(--text-secondary)' }))
+    return fields.map(f => ({ label: f.label, text: '—', color: 'var(--text-secondary)', raw: null }))
   }
   const last = points[points.length - 1]
   const targetTs = last.created_at - 24 * 3600 * 1000
@@ -867,12 +867,12 @@ function calcDelta24Multi(points: CleanPoint[], type: HistoryKind): { label: str
     const a = Number(best[f.key] ?? 0)
     const b = Number(last[f.key] ?? 0)
     if (best[f.key] === undefined || last[f.key] === undefined) {
-      return { label: f.label, text: '—', color: 'var(--text-secondary)', insuff }
+      return { label: f.label, text: '—', color: 'var(--text-secondary)', insuff, raw: null }
     }
     const delta = b - a
     const color = delta > 0 ? '#67c23a' : delta < 0 ? '#f56c6c' : 'var(--text-secondary)'
     const sign = delta > 0 ? '+' : ''
-    return { label: f.label, text: `${sign}${formatNum(delta)}`, color, insuff }
+    return { label: f.label, text: `${sign}${formatNum(delta)}`, color, insuff, raw: delta }
   })
 }
 
