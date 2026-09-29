@@ -113,6 +113,8 @@ interface SeriesItem {
   showLabel?: boolean
   /** 图例默认隐藏（仍可手动点开） */
   defaultHidden?: boolean
+  /** 分P 等辅助曲线用虚线 */
+  dash?: boolean
   formatter?: (v: number) => string
 }
 
@@ -532,7 +534,7 @@ function renderChart() {
         smooth: true,
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { width: 2 },
+        lineStyle: { width: 2, type: s.dash ? ('dashed' as const) : ('solid' as const) },
         itemStyle: { color: s.color || COLORS[i % COLORS.length] },
         yAxisIndex: axisIdx,
         label: {

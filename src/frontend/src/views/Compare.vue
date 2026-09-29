@@ -1120,6 +1120,8 @@ const chartSeries = computed(() => {
     color: m.color,
     yAxisIndex: m.axis,
     showLabel: false,
+    // 分P（叠加第三轴或分P数指标）用虚线，与主指标区分
+    dash: m.axis === 2 || metricKey.value === 'page',
   }))
 })
 

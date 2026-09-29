@@ -1141,6 +1141,7 @@ const videoHistSeries = computed(() => {
     const raw = videoChartData.value.map(h => (h[m.key] ?? 0) as number)
     const defaultHidden = m.key === 'page_count'
     const axisIdx = m.key === 'page_count' ? 2 : (m.idx === 0 ? 0 : 1)
+    const dash = m.key === 'page_count'
     if (videoHistMode.value === 'raw') {
       return {
         name: m.name,
@@ -1150,6 +1151,7 @@ const videoHistSeries = computed(() => {
         yAxisIndex: axisIdx,
         showLabel: labelSwitches[m.idx].value,
         defaultHidden,
+        dash,
       }
     }
     const deltaName = m.key === 'page_count' ? '分P增加量' : `${m.name}增量`
@@ -1162,7 +1164,7 @@ const videoHistSeries = computed(() => {
       chartGapMinutes.value,
       labelSwitches[m.idx].value
     )
-    return { ...series, fullName: deltaName, defaultHidden }
+    return { ...series, fullName: deltaName, defaultHidden, dash }
   })
 })
 
