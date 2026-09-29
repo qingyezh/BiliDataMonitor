@@ -1128,10 +1128,10 @@ const videoHistSeries = computed(() => {
   }
   const colors = ['#409eff', '#e6a23c', '#67c23a', '#9b59b6']
   const labelSwitches = [videoShowPlayLabel, videoShowDanmakuLabel, videoShowCommentLabel, videoShowPageLabel]
-  const metrics = [
-    { name: '播放', key: 'play' as const, idx: 0 },
-    { name: '弹幕', key: 'video_review' as const, idx: 1 },
-    { name: '评论', key: 'comment' as const, idx: 2 },
+  const metrics: { name: string; key: 'play' | 'video_review' | 'comment' | 'page_count'; idx: number }[] = [
+    { name: '播放', key: 'play', idx: 0 },
+    { name: '弹幕', key: 'video_review', idx: 1 },
+    { name: '评论', key: 'comment', idx: 2 },
   ]
   // 仅多分P视频展示分P曲线；默认隐藏，独立第三轴
   if (videoHasPageSeries.value) {

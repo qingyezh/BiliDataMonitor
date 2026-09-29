@@ -90,21 +90,74 @@
           <span class="compare-list-title">对比目标</span>
           <div class="bar-spacer" />
           <div class="compare-list-actions">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :disabled="mergeSelection.length < 2"
+              @click="mergeSelected"
+            >合并所选（{{ mergeSelection.length }}）</el-button>
             <el-button size="small" @click="$router.push('/')">+ 列表</el-button>
             <el-button v-if="targets.length" size="small" type="danger" plain @click="clearAll">清空</el-button>
           </div>
         </div>
-        <el-table :data="cards" size="small" stripe>
-          <el-table-column label="类型" width="72" align="center">
+        <el-table :data="tableRows" size="small" stripe :row-class-name="rowClassName">
+          <el-table-column width="40" align="center">
             <template #default="{ row }">
-              <el-tag size="small" :type="tagType(row.type)">{{ typeLabel(row.type) }}</el-tag>
+              <el-checkbox
+                v-if="row.kind !== 'group'"
+                :model-value="mergeSelection.includes(row.key)"
+                @change="toggleMergeSelect(row.key)"
+              />
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="名称" min-width="280" align="center" show-overflow-tooltip />
+          <el-table-column label="类型" width="72" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.kind === 'group'" size="small" type="warning">组·{{ row.memberCount }}</el-tag>
+              <el-tag v-else size="small" :type="tagType(row.type)">{{ typeLabel(row.type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="名称" min-width="260" align="center" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.kind === 'group'" class="group-name">
+                <el-button size="small" text @click="toggleGroupExpand(row.groupId)">
+                  {{ expandedGroups.has(row.groupId) ? '收起' : '展开' }}
+                </el-button>
+                {{ row.name }}
+                <el-select
+                  :model-value="row.mergeMode || 'sum'"
+                  size="small"
+                  style="width: 72px; margin-left: 6px"
+                  @change="(m: MergeMode) => onChangeMergeMode(row.groupId, m)"
+                >
+                  <el-option label="求和" value="sum" />
+                  <el-option label="均值" value="avg" />
+                  <el-option label="最大" value="max" />
+                  <el-option label="最小" value="min" />
+                </el-select>
+              </span>
+              <span v-else class="member-name">{{ row.name }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="别名" width="178" align="center">
             <template #default="{ row }">
               <div class="alias-cell">
-                <template v-if="editingAliasKey === row.key">
+                <template v-if="row.kind === 'group' && editingGroupAliasId === row.groupId">
+                  <el-input
+                    v-model="editingGroupAliasValue"
+                    size="small"
+                    :maxlength="20"
+                    :placeholder="row.inheritName || '图例名，空=清除'"
+                    style="width: 100px"
+                    @keyup.enter="confirmGroupAlias(row)"
+                    @keyup.esc="cancelAlias"
+                  />
+                  <div class="alias-actions">
+                    <el-button size="small" type="primary" text @click="confirmGroupAlias(row)">存</el-button>
+                    <el-button size="small" text @click="cancelAlias">取消</el-button>
+                  </div>
+                </template>
+                <template v-else-if="row.kind !== 'group' && editingAliasKey === row.key">
                   <el-input
                     v-model="editingAliasValue"
                     size="small"
@@ -117,6 +170,17 @@
                   <div class="alias-actions">
                     <el-button size="small" type="primary" text @click="confirmAlias(row)">存</el-button>
                     <el-button size="small" text @click="cancelAlias">取消</el-button>
+                  </div>
+                </template>
+                <template v-else-if="row.kind === 'group'">
+                  <span class="alias-name" :title="groupAliasMap[row.groupId] || row.inheritName || ''">
+                    {{ groupAliasMap[row.groupId] || row.inheritName || '未设置' }}
+                  </span>
+                  <div class="alias-actions">
+                    <el-button size="small" type="primary" text @click="startEditGroupAlias(row)">
+                      {{ groupAliasMap[row.groupId] ? '修改' : '设置' }}
+                    </el-button>
+                    <el-button v-if="groupAliasMap[row.groupId]" size="small" type="danger" text @click="clearGroupAlias(row)">清除</el-button>
                   </div>
                 </template>
                 <template v-else>
@@ -160,11 +224,24 @@
               </template>
             </el-table-column>
           </el-table-column>
-          <el-table-column label="操作" width="150" align="center">
+          <el-table-column label="操作" width="170" align="center">
             <template #default="{ row }">
               <div class="action-cell">
-                <el-button size="small" class="action-btn" type="primary" plain @click="openDetail(row)">详情</el-button>
-                <el-button size="small" class="action-btn" type="danger" plain @click="onRemove({ type: row.type, target: row.target })">移除</el-button>
+                <template v-if="row.kind === 'group'">
+                  <el-button size="small" class="action-btn" type="warning" plain @click="onUngroup(row.groupId)">解组</el-button>
+                </template>
+                <template v-else>
+                  <el-button size="small" class="action-btn" type="primary" plain @click="openDetail(row)">详情</el-button>
+                  <el-button
+                    v-if="row.kind === 'member'"
+                    size="small"
+                    class="action-btn"
+                    type="warning"
+                    plain
+                    @click="onRemoveFromGroup(row.key)"
+                  >移出组</el-button>
+                  <el-button size="small" class="action-btn" type="danger" plain @click="onRemove({ type: row.type, target: row.target })">移除</el-button>
+                </template>
               </div>
             </template>
           </el-table-column>
@@ -200,14 +277,15 @@
               />
             </div>
             <div class="chart-note">
-              <template v-if="timeAxis === 'calendar'">时间对齐容差 20s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟</template>
+              <template v-if="timeAxis === 'calendar'">时间对齐容差 20s · 组内合并对齐 30s · 近重复合并 4s · 重采样 {{ chartGapMinutes }} 分钟</template>
               <template v-else>
                 T+0：各序列自起点对齐 ·
                 <template v-if="!t0ShowAll">窗 T+{{ t0StartLabel }}~T+{{ t0EndLabel }} · 约 {{ t0PointCountLabel }} 点 ·</template>
                 <template v-else>窗 全部 ·</template>
                 相对网格重采样 {{ chartGapMinutes }} 分钟
               </template>
-              <template v-if="histMode === 'delta'"> · 增量：相对网格相邻差值，真断档才断线</template>
+              <template v-if="histMode === 'delta'"> · 增量不含各条首次采样（0→首爬），真断档才断线</template>
+              <template v-if="mergeModeLabel"> · 合并：{{ mergeModeLabel }}</template>
               <template v-if="metricKey === 'page'"> · 分P仅视频目标参与对比</template>
               <template v-else-if="overlayPage"> · 分P已叠加（图例「分P·…」，第三轴）</template>
             </div>
@@ -246,11 +324,16 @@ import {
   parseCompareQuery, encodeCompareQuery, COMPARE_MAX,
   loadAliasMap, setCompareAlias, clearCompareAlias,
   loadCompareUiSettings, saveCompareUiSettings,
+  loadCompareGroups, saveCompareGroups, mergeMembersToGroup, ungroupByGroupId,
+  removeMemberFromGroup, setGroupMergeMode, buildDisplayItems,
+  loadGroupAliasMap, setCompareGroupAlias, clearCompareGroupAlias,
+  groupIdOf, type CompareGroupDef, type MergeMode,
 } from '../utils/compareStore'
 import {
-  dedupeNearDuplicates, resampleByInterval, alignByTimeSlots, alignByRelativeBuckets,
-  resampleRelativeSeries, buildDeltaOnRelative,
-  DUPLICATE_MERGE_MS, ALIGN_TOLERANCE_MS, type CleanPoint,
+  dedupeNearDuplicates, alignByTimeSlots, alignByRelativeBuckets,
+  resampleRelativeSeries, buildDeltaOnRelative, buildDeltaExcludeFirst,
+  alignMembersToSlots, mergeMemberSlots, resampleMergedSeries,
+  DUPLICATE_MERGE_MS, ALIGN_TOLERANCE_MS, MERGE_TOLERANCE_MS, type CleanPoint,
 } from '../utils/historyClean'
 import katex from 'katex'
 
@@ -365,14 +448,20 @@ const router = useRouter()
 const loading = ref(false)
 const targets = ref<CompareTarget[]>([])
 const seriesRaw = ref<Record<string, CleanPoint[]>>({})
-const cards = ref<{
+const groups = ref<CompareGroupDef[]>([])
+const groupAliasMap = ref<Record<string, string>>({})
+const expandedGroups = ref<Set<string>>(new Set())
+const mergeSelection = ref<string[]>([])
+const editingGroupAliasId = ref<string | null>(null)
+const editingGroupAliasValue = ref('')
+const cards = ref<Record<string, {
   key: string
   type: HistoryKind
   target: string
   name: string
   summary?: { label: string; value: string }[]
   delta24?: { label: string; text: string; color: string; insuff?: boolean }[]
-}[]>([])
+}>>({})
 
 /** 当前登录用户名（别名按账号分桶） */
 const currentUsername = ref('')
@@ -383,6 +472,10 @@ const editingAliasValue = ref('')
 
 function aliasId(type: HistoryKind | string, target: string) {
   return `${type}:${target}`
+}
+
+function targetKeyOf(t: { type: HistoryKind | string; target: string }) {
+  return `${t.type}:${t.target}`
 }
 
 function displayAliasOrName(t: { type: HistoryKind; target: string; name?: string }) {
@@ -398,6 +491,8 @@ function startEditAlias(c: { key: string }) {
 function cancelAlias() {
   editingAliasKey.value = null
   editingAliasValue.value = ''
+  editingGroupAliasId.value = null
+  editingGroupAliasValue.value = ''
 }
 
 function confirmAlias(c: { key: string; type: HistoryKind; target: string }) {
@@ -408,6 +503,80 @@ function confirmAlias(c: { key: string; type: HistoryKind; target: string }) {
 function clearAlias(c: { key: string; type: HistoryKind; target: string }) {
   aliasMap.value = clearCompareAlias(currentUsername.value, c.type, c.target)
   cancelAlias()
+}
+
+function startEditGroupAlias(row: { groupId: string }) {
+  editingGroupAliasId.value = row.groupId
+  editingGroupAliasValue.value = groupAliasMap.value[row.groupId] || ''
+}
+
+function confirmGroupAlias(row: { groupId: string }) {
+  groupAliasMap.value = setCompareGroupAlias(currentUsername.value, row.groupId, editingGroupAliasValue.value)
+  cancelAlias()
+}
+
+function clearGroupAlias(row: { groupId: string }) {
+  groupAliasMap.value = clearCompareGroupAlias(currentUsername.value, row.groupId)
+  cancelAlias()
+}
+
+function toggleGroupExpand(id: string) {
+  const next = new Set(expandedGroups.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedGroups.value = next
+}
+
+function toggleMergeSelect(key: string) {
+  const i = mergeSelection.value.indexOf(key)
+  if (i >= 0) mergeSelection.value.splice(i, 1)
+  else mergeSelection.value.push(key)
+}
+
+function mergeSelected() {
+  const keys = [...mergeSelection.value]
+  if (keys.length < 2) return
+  groups.value = mergeMembersToGroup(keys, 'sum')
+  mergeSelection.value = []
+  const id = groupIdOf(keys)
+  expandedGroups.value = new Set([...expandedGroups.value, id])
+  syncUrl()
+  ElMessage.success(`已合并 ${keys.length} 条为一组`)
+}
+
+function onUngroup(id: string) {
+  groups.value = ungroupByGroupId(id)
+  expandedGroups.value = new Set([...expandedGroups.value].filter(x => x !== id))
+  syncUrl()
+}
+
+function onRemoveFromGroup(key: string) {
+  groups.value = removeMemberFromGroup(key)
+  syncUrl()
+}
+
+function onChangeMergeMode(id: string, mode: MergeMode) {
+  groups.value = setGroupMergeMode(id, mode)
+}
+
+function rowClassName({ row }: { row: { kind: string } }) {
+  return row.kind === 'group' ? 'row-group' : row.kind === 'member' ? 'row-member' : ''
+}
+
+/** 组显示名：组别名 > 成员别名继承拼装 */
+function inheritNameOf(memberKeys: string[]): string {
+  const parts = memberKeys.map(k => {
+    const t = targets.value.find(x => targetKeyOf(x) === k)
+    const alias = aliasMap.value[k]
+    if (alias) return shortName(alias, 6)
+    return shortName(t?.name || k.split(':').slice(1).join(':'), 6)
+  })
+  if (parts.length <= 3) return parts.join('+')
+  return `${parts.slice(0, 2).join('+')}+…(${parts.length})`
+}
+
+function groupDisplayName(memberKeys: string[], groupId: string): string {
+  return groupAliasMap.value[groupId] || inheritNameOf(memberKeys)
 }
 
 function seriesDisplayBase(t: CompareTarget, prefix = '') {
@@ -495,8 +664,134 @@ async function fetchOne(t: CompareTarget): Promise<{ points: CleanPoint[]; name:
 
 /** 多级表头子列名：按对比集中第一个目标类型的语义指标 */
 const tableSubHeaders = computed(() => {
-  const t = cards.value[0]?.type || 'video'
+  const first = Object.values(cards.value)[0]
+  const t = first?.type || 'video'
   return metricFieldsOf(t).map(f => f.label)
+})
+
+type TableRow = {
+  rowId: string
+  kind: 'group' | 'member' | 'target'
+  groupId?: string
+  key: string
+  type: HistoryKind | 'group'
+  target: string
+  name: string
+  inheritName?: string
+  mergeMode?: MergeMode
+  memberCount?: number
+  summary?: { label: string; value: string }[]
+  delta24?: { label: string; text: string; color: string; insuff?: boolean }[]
+}
+
+const displayItems = computed(() => buildDisplayItems(targets.value, groups.value))
+
+const tableRows = computed<TableRow[]>(() => {
+  const rows: TableRow[] = []
+  const groupOf = new Map<string, CompareGroupDef>()
+  for (const g of groups.value) for (const m of g.members) groupOf.set(m, g)
+
+  for (const itemKeys of displayItems.value) {
+    const firstKey = itemKeys[0]
+    const g = groupOf.get(firstKey)
+    const isGroup = g && itemKeys.length >= 2
+    if (isGroup && g) {
+      const gid = g.id
+      const inherit = inheritNameOf(itemKeys)
+      rows.push({
+        rowId: `g:${gid}`,
+        kind: 'group',
+        groupId: gid,
+        key: gid,
+        type: 'group',
+        target: gid,
+        name: groupDisplayName(itemKeys, gid),
+        inheritName: inherit,
+        mergeMode: g.mergeMode,
+        memberCount: itemKeys.length,
+        summary: aggregateSummary(itemKeys, g.mergeMode),
+        delta24: aggregateDelta24(itemKeys, g.mergeMode),
+      })
+      if (expandedGroups.value.has(gid)) {
+        for (const k of itemKeys) {
+          const t = targets.value.find(x => targetKeyOf(x) === k)
+          const c = cards.value[k]
+          rows.push({
+            rowId: `m:${k}`,
+            kind: 'member',
+            groupId: gid,
+            key: k,
+            type: t?.type || 'video',
+            target: t?.target || k,
+            name: c?.name || t?.name || k,
+            summary: c?.summary,
+            delta24: c?.delta24,
+          })
+        }
+      }
+    } else {
+      const t = targets.value.find(x => targetKeyOf(x) === firstKey)
+      const c = cards.value[firstKey]
+      rows.push({
+        rowId: `t:${firstKey}`,
+        kind: 'target',
+        key: firstKey,
+        type: t?.type || 'video',
+        target: t?.target || firstKey,
+        name: c?.name || t?.name || firstKey,
+        summary: c?.summary,
+        delta24: c?.delta24,
+      })
+    }
+  }
+  return rows
+})
+
+function parseNum(s: string | undefined): number | null {
+  if (!s || s === '—') return null
+  const n = Number(String(s).replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
+function aggregateSummary(memberKeys: string[], mode: MergeMode) {
+  const fields = metricFieldsOf(targets.value.find(x => targetKeyOf(x) === memberKeys[0])?.type || 'video')
+  return fields.map((f, i) => {
+    const nums = memberKeys
+      .map(k => parseNum(cards.value[k]?.summary?.[i]?.value))
+      .filter((n): n is number => n !== null)
+    if (!nums.length) return { label: f.label, value: '—' }
+    let v = nums.reduce((a, b) => a + b, 0)
+    if (mode === 'avg') v = v / nums.length
+    else if (mode === 'max') v = Math.max(...nums)
+    else if (mode === 'min') v = Math.min(...nums)
+    return { label: f.label, value: formatNum(v) }
+  })
+}
+
+function aggregateDelta24(memberKeys: string[], mode: MergeMode) {
+  const fields = metricFieldsOf(targets.value.find(x => targetKeyOf(x) === memberKeys[0])?.type || 'video')
+  return fields.map((f, i) => {
+    const items = memberKeys
+      .map(k => cards.value[k]?.delta24?.[i])
+      .filter(Boolean) as { label: string; text: string; color: string; insuff?: boolean }[]
+    const nums = items.map(d => parseNum(d.text)).filter((n): n is number => n !== null)
+    if (!nums.length) return { label: f.label, text: '—', color: 'var(--text-secondary)' }
+    let v = nums.reduce((a, b) => a + b, 0)
+    if (mode === 'avg') v = v / nums.length
+    else if (mode === 'max') v = Math.max(...nums)
+    else if (mode === 'min') v = Math.min(...nums)
+    const color = v > 0 ? '#67c23a' : v < 0 ? '#f56c6c' : 'var(--text-secondary)'
+    const sign = v > 0 ? '+' : ''
+    const insuff = items.some(d => d.insuff)
+    return { label: f.label, text: `${sign}${formatNum(v)}`, color, insuff }
+  })
+}
+
+const mergeModeLabel = computed(() => {
+  const modes = new Set(tableRows.value.filter(r => r.kind === 'group').map(r => r.mergeMode || 'sum'))
+  if (!modes.size) return ''
+  const label: Record<MergeMode, string> = { sum: '求和', avg: '均值', max: '最大', min: '最小' }
+  return [...modes].map(m => label[m] || m).join('/')
 })
 
 function summaryAt(row: { summary?: { label: string; value: string }[] }, idx: number): string {
@@ -585,25 +880,30 @@ async function reload() {
   loading.value = true
   try {
     const list = targets.value
+    // 清掉已不存在的目标
+    groups.value = loadCompareGroups().filter(g =>
+      g.members.every(m => list.some(t => seriesKey(t) === m))
+    )
     const results = await Promise.all(list.map(t => fetchOne(t)))
     const raw: Record<string, CleanPoint[]> = {}
-    const nextCards: typeof cards.value = []
+    const nextCards: typeof cards.value = {}
     list.forEach((t, i) => {
       const k = seriesKey(t)
       raw[k] = results[i].points
       t.name = results[i].name
-      nextCards.push({
+      nextCards[k] = {
         key: k,
         type: t.type,
         target: t.target,
         name: results[i].name,
         summary: summarize(t.type, results[i].meta, results[i].points),
         delta24: calcDelta24Multi(results[i].points, t.type),
-      })
+      }
     })
     seriesRaw.value = raw
     cards.value = nextCards
     saveCompareTargets(list)
+    saveCompareGroups(groups.value)
     syncUrl()
   } finally {
     loading.value = false
@@ -621,24 +921,16 @@ function applyScale(vals: (number | null)[]): (number | null)[] {
   })
 }
 
-function buildDelta(values: (number | null)[], times: number[], intervalMin: number): (number | null)[] {
-  if (values.length < 2) return []
-  const gapLimit = intervalMin * 60 * 1000 * 2.5
-  const out: (number | null)[] = []
-  for (let i = 1; i < values.length; i++) {
-    const a = values[i - 1]
-    const b = values[i]
-    if (a === null || b === null) { out.push(null); continue }
-    if (times[i] - times[i - 1] > gapLimit) { out.push(null); continue }
-    out.push(b - a)
-  }
-  return out
+function findGroupOfKeys(memberKeys: string[]): CompareGroupDef | undefined {
+  return groups.value.find(
+    g => g.members.length === memberKeys.length && g.members.every(m => memberKeys.includes(m))
+  )
 }
 
 const trendSeriesIdx = computed(() => {
-  // 叠加分P后系列数与 targets 不对齐，避免误挂趋势线
+  // 叠加分P后系列数与展示项不对齐，避免误挂趋势线
   if (!showTrend.value || overlayPage.value) return []
-  return targets.value.map((_, i) => i)
+  return displayItems.value.map((_, i) => i)
 })
 
 const chartCategories = computed(() => {
@@ -646,8 +938,94 @@ const chartCategories = computed(() => {
   return alignedCache.value.categories
 })
 
+/** 将展示项（成员 key 列表）合并为单条序列 */
+function buildMergedDisplaySeries(
+  memberKeys: string[],
+  fieldOf: (t: CompareTarget) => string | undefined,
+  options: {
+    isRel: boolean
+    intervalMin: number
+    histMode: 'raw' | 'delta'
+    mergeMode: MergeMode
+    win: { startH: number; endH: number; showAll: boolean }
+  }
+): { ts: number[]; vs: (number | null)[] } | null {
+  const { isRel, intervalMin, histMode: hm, mergeMode, win } = options
+  const members: { key: string; pts: CleanPoint[]; field: string }[] = []
+  for (const k of memberKeys) {
+    const t = targets.value.find(x => seriesKey(x) === k)
+    if (!t) continue
+    const field = fieldOf(t)
+    if (!field) continue
+    const ranged = isRel
+      ? (seriesRaw.value[k] || [])
+      : filterByRange(seriesRaw.value[k] || [])
+    if (!ranged.length) continue
+    members.push({ key: k, pts: ranged, field })
+  }
+  if (!members.length) return null
+
+  if (isRel) {
+    // 组 T0 = 最早成员首点；共享相对网格后合并
+    const baseT0 = Math.min(...members.map(m => m.pts[0].created_at))
+    const relList = members.map(m =>
+      resampleRelativeSeries(m.pts, m.field, intervalMin, undefined, baseT0)
+    )
+    const valid = relList.filter((r): r is NonNullable<typeof r> => !!r)
+    if (!valid.length) return null
+    const maxLen = Math.max(...valid.map(r => r.values.length))
+    const times = valid[0].times.slice(0, maxLen)
+    while (times.length < maxLen) times.push(times.length * intervalMin * 60000)
+    const aligned = valid.map(r => {
+      const vs = hm === 'delta' ? buildDeltaOnRelative(r.values) : r.values
+      const out: (number | null)[] = []
+      for (let i = 0; i < maxLen; i++) out.push(vs[i] ?? null)
+      return out
+    })
+    const merged = mergeMemberSlots(aligned, mergeMode, hm)
+    let ts = times
+    let vs = merged
+    if (!win.showAll) {
+      const startMs = win.startH * 3600000
+      const endMs = win.endH * 3600000
+      const keepIdx: number[] = []
+      ts.forEach((t, i) => {
+        if (t >= startMs && t <= endMs) keepIdx.push(i)
+      })
+      ts = keepIdx.map(i => ts[i])
+      vs = keepIdx.map(i => vs[i]!)
+    }
+    return { ts, vs: applyScale(vs) }
+  }
+
+  // 日历：成员增量剔首点 → 组内 30s 对齐 → 合并 → 重采样
+  const gapLimit = intervalMin * 60 * 1000 * 2.5
+  const seriesTimes: number[][] = []
+  const seriesValues: (number | null)[][] = []
+  for (const m of members) {
+    const times = m.pts.map(p => p.created_at)
+    const values = m.pts.map(p => Number(p[m.field] ?? 0))
+    if (hm === 'delta') {
+      const d = buildDeltaExcludeFirst(times, values, gapLimit)
+      seriesTimes.push(d.times)
+      seriesValues.push(d.values)
+    } else {
+      seriesTimes.push(times)
+      seriesValues.push(values)
+    }
+  }
+  const { slots, aligned } = alignMembersToSlots(
+    seriesTimes,
+    seriesValues,
+    MERGE_TOLERANCE_MS,
+    hm === 'delta' ? 'sum' : 'max'
+  )
+  const merged = mergeMemberSlots(aligned, mergeMode, hm)
+  const res = resampleMergedSeries(slots, merged, intervalMin, hm)
+  return { ts: res.times, vs: applyScale(res.values) }
+}
+
 const chartSeries = computed(() => {
-  const list = targets.value
   const fieldOf = (t: CompareTarget) => METRIC_FIELD[metricKey.value]?.[t.type]
   const isRel = timeAxis.value === 'relative'
   const intervalMin = chartGapMinutes.value
@@ -659,96 +1037,67 @@ const chartSeries = computed(() => {
   const metaList: { origIdx: number; axis: number; name: string; fullName: string; color: string }[] = []
   const usedNames = new Set<string>()
 
-  /** T+0：相对网格 → 可选增量 → 相对窗截断 → scale（first=窗内首有效点） */
-  function buildRelativeSeries(pts: CleanPoint[], field: string): { ts: number[]; vs: (number | null)[] } | null {
-    const rel = resampleRelativeSeries(pts, field, intervalMin)
-    if (!rel) return null
-    let ts = rel.times
-    let vs: (number | null)[] = rel.values
-    if (histMode.value === 'delta') {
-      vs = buildDeltaOnRelative(vs)
-    }
-    if (!win.showAll) {
-      const startMs = win.startH * 3600000
-      const endMs = win.endH * 3600000
-      const keepIdx: number[] = []
-      ts.forEach((t, i) => {
-        if (t >= startMs && t <= endMs) keepIdx.push(i)
+  displayItems.value.forEach((memberKeys, i) => {
+    const firstT = targets.value.find(x => seriesKey(x) === memberKeys[0])
+    const g = findGroupOfKeys(memberKeys)
+    const mergeMode: MergeMode = (memberKeys.length >= 2 ? (g?.mergeMode || 'sum') : 'sum')
+    const built = buildMergedDisplaySeries(memberKeys, fieldOf, {
+      isRel,
+      intervalMin,
+      histMode: histMode.value,
+      mergeMode,
+      win,
+    })
+    if (built && built.ts.length && firstT) {
+      const isGroup = memberKeys.length >= 2
+      const displayName = isGroup
+        ? groupDisplayName(memberKeys, groupIdOf(memberKeys))
+        : seriesDisplayBase(firstT)
+      const fullName = isGroup
+        ? `${typeLabel(firstT.type)}组·${groupDisplayName(memberKeys, groupIdOf(memberKeys))}（${memberKeys.length}条）`
+        : seriesFullName(firstT)
+      timesList.push(built.ts)
+      valuesList.push(built.vs as number[])
+      metaList.push({
+        origIdx: i,
+        axis: 0,
+        name: uniqueSeriesName(displayName, usedNames, memberKeys[0]),
+        fullName,
+        color: COLORS[i % COLORS.length],
       })
-      ts = keepIdx.map(i => ts[i])
-      vs = keepIdx.map(i => vs[i]!)
     }
-    const scaled = applyScale(vs as (number | null)[])
-    return { ts, vs: scaled }
-  }
 
-  /** 日历：绝对重采样 + 既有管线 */
-  function buildCalendarSeries(pts: CleanPoint[], field: string): { ts: number[]; vs: (number | null)[] } {
-    const rs = resampleByInterval(pts, intervalMin)
-    let ts = rs.map(p => p.created_at)
-    let vs: (number | null)[] = rs.map(p => Number(p[field] ?? 0))
-    if (histMode.value === 'delta') {
-      vs = buildDelta(vs as number[], ts, intervalMin)
-      ts = ts.slice(1)
-    }
-    return { ts, vs: applyScale(vs) }
-  }
-
-  list.forEach((t, i) => {
-    const field = fieldOf(t)
-    // T+0 不做日历过滤；日历模式用 dateRange
-    const ranged = isRel
-      ? (seriesRaw.value[seriesKey(t)] || [])
-      : filterByRange(seriesRaw.value[seriesKey(t)] || [])
-    if (field && ranged.length) {
-      const built = isRel ? buildRelativeSeries(ranged, field) : buildCalendarSeries(ranged, field)
-      if (built && built.ts.length) {
-        timesList.push(built.ts)
-        valuesList.push(built.vs as number[])
-        metaList.push({
-          origIdx: i,
-          axis: 0,
-          name: uniqueSeriesName(seriesDisplayBase(t), usedNames, t.target),
-          fullName: seriesFullName(t),
-          color: COLORS[i % COLORS.length],
-        })
-      }
-    }
-    // 叠加分P：仅视频；与主指标同一时间对齐流程，挂第三轴，不做 scale 变换
-    if (overlayPage.value && metricKey.value !== 'page' && t.type === 'video' && ranged.length) {
-      let ts: number[] = []
-      let vs: (number | null)[] = []
-      if (isRel) {
-        const rel = resampleRelativeSeries(ranged, 'page_count', intervalMin)
-        if (rel) {
-          ts = rel.times
-          vs = histMode.value === 'delta' ? buildDeltaOnRelative(rel.values) : rel.values
-          if (!win.showAll) {
-            const startMs = win.startH * 3600000
-            const endMs = win.endH * 3600000
-            const keepIdx: number[] = []
-            ts.forEach((tt, ii) => { if (tt >= startMs && tt <= endMs) keepIdx.push(ii) })
-            ts = keepIdx.map(ii => ts[ii])
-            vs = keepIdx.map(ii => vs[ii]!)
-          }
-        }
-      } else {
-        const rs = resampleByInterval(ranged, intervalMin)
-        ts = rs.map(p => p.created_at)
-        vs = rs.map(p => Number(p.page_count ?? 0))
-        if (histMode.value === 'delta') {
-          vs = buildDelta(vs as number[], ts, intervalMin)
-          ts = ts.slice(1)
-        }
-      }
-      if (ts.length) {
-        timesList.push(ts)
-        valuesList.push(vs as number[])
+    // 叠加分P：仅视频成员；组内求和后挂第三轴
+    if (overlayPage.value && metricKey.value !== 'page') {
+      const pageKeys = memberKeys.filter(k => {
+        const t = targets.value.find(x => seriesKey(x) === k)
+        return t?.type === 'video'
+      })
+      if (!pageKeys.length) return
+      const pageFieldOf = (t: CompareTarget) => (t.type === 'video' ? 'page_count' : undefined)
+      const pageBuilt = buildMergedDisplaySeries(pageKeys, pageFieldOf, {
+        isRel,
+        intervalMin,
+        histMode: histMode.value,
+        mergeMode: pageKeys.length >= 2 ? 'sum' : 'sum',
+        win,
+      })
+      if (pageBuilt && pageBuilt.ts.length && firstT) {
+        timesList.push(pageBuilt.ts)
+        valuesList.push(pageBuilt.vs as number[])
         metaList.push({
           origIdx: i,
           axis: 2,
-          name: uniqueSeriesName(seriesDisplayBase(t, '分P'), usedNames, t.target),
-          fullName: seriesFullName(t, '分P'),
+          name: uniqueSeriesName(
+            memberKeys.length >= 2
+              ? `分P·${groupDisplayName(memberKeys, groupIdOf(memberKeys))}`
+              : seriesDisplayBase(firstT, '分P'),
+            usedNames,
+            memberKeys[0]
+          ),
+          fullName: memberKeys.length >= 2
+            ? `分P·${groupDisplayName(memberKeys, groupIdOf(memberKeys))}`
+            : seriesFullName(firstT, '分P'),
           color: COLORS[i % COLORS.length],
         })
       }
@@ -789,16 +1138,24 @@ function openDetail(c: { type: HistoryKind; target: string }) {
 }
 function onRemove(t: Pick<CompareTarget, 'type' | 'target'>) {
   targets.value = removeCompareTarget(t.type, t.target)
+  groups.value = loadCompareGroups()
+  mergeSelection.value = mergeSelection.value.filter(k => {
+    const [ty, tg] = [t.type, t.target]
+    return k !== `${ty}:${tg}`
+  })
   reload()
 }
 function clearAll() {
   clearCompareTargets()
   targets.value = []
   seriesRaw.value = {}
-  cards.value = []
+  cards.value = {}
+  groups.value = []
+  mergeSelection.value = []
   syncUrl()
 }
 function syncUrl() {
+  saveCompareGroups(groups.value)
   const q = encodeCompareQuery(targets.value, {
     metric: metricKey.value,
     mode: histMode.value,
@@ -894,17 +1251,23 @@ onMounted(async () => {
     currentUsername.value = localStorage.getItem('bili_username') || '__anon__'
   }
   aliasMap.value = loadAliasMap(currentUsername.value)
+  groupAliasMap.value = loadGroupAliasMap(currentUsername.value)
 
   // 1) 先恢复本地缓存的工具栏设置（不清缓存则刷新不丢）
   const savedUi = loadCompareUiSettings(currentUsername.value)
   if (savedUi) applyUiSettings(savedUi)
 
   const fromUrl = parseCompareQuery(route.query.ids as string)
-  if (fromUrl.length) {
-    targets.value = fromUrl.slice(0, COMPARE_MAX)
+  if (fromUrl.targets.length) {
+    targets.value = fromUrl.targets.slice(0, COMPARE_MAX)
     saveCompareTargets(targets.value)
+    groups.value = fromUrl.groups.filter(g => g.members.every(m => targets.value.some(t => seriesKey(t) === m)))
+    saveCompareGroups(groups.value)
   } else {
     targets.value = loadCompareTargets()
+    groups.value = loadCompareGroups().filter(g =>
+      g.members.every(m => targets.value.some(t => seriesKey(t) === m))
+    )
   }
   // 2) URL 参数优先覆盖本地缓存（分享链接仍生效）
   if (route.query.metric) metricKey.value = String(route.query.metric)
@@ -1066,6 +1429,22 @@ onMounted(async () => {
   padding: 2px 4px;
   font-size: 12px;
 }
+.group-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.member-name {
+  padding-left: 12px;
+  opacity: 0.92;
+}
+:deep(.row-group) {
+  background: var(--el-fill-color-light) !important;
+  font-weight: 600;
+}
+:deep(.row-member) .cell {
+  font-size: 12px;
+}
 .num-cell {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
@@ -1098,9 +1477,10 @@ onMounted(async () => {
 .action-cell {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   white-space: nowrap;
 }
 .action-cell .action-btn {

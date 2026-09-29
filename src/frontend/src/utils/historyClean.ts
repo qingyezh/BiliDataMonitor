@@ -2,6 +2,8 @@
 
 export const DUPLICATE_MERGE_MS = 4000
 export const ALIGN_TOLERANCE_MS = 20000
+/** 组内成员合并：同一采集轮次的时间宽容度 */
+export const MERGE_TOLERANCE_MS = 30000
 
 export interface CleanPoint {
   id?: number
@@ -163,11 +165,12 @@ export function resampleRelativeSeries(
   history: CleanPoint[],
   field: string,
   intervalMinutes: number,
-  gapMultiplier: number = RELATIVE_GAP_MULTIPLIER
+  gapMultiplier: number = RELATIVE_GAP_MULTIPLIER,
+  baseT0?: number
 ): RelativeSeriesResult | null {
   if (!history.length) return null
   const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000
-  const t0 = history[0].created_at
+  const t0 = baseT0 ?? history[0].created_at
   const buckets = new Map<number, number>()
   const lastTsByKey = new Map<number, number>()
   for (const h of history) {
@@ -225,4 +228,205 @@ export function buildDeltaOnRelative(
     out.push(b - a)
   }
   return out
+}
+
+/**
+ * 成员增量：首采样点只作基线，不产生「0→第一次爬取」增量。
+ * 返回与 times[1..] 对齐的增量序列；跨度过大处为 null。
+ */
+export function buildDeltaExcludeFirst(
+  times: number[],
+  values: (number | null)[],
+  gapLimitMs?: number
+): { times: number[]; values: (number | null)[] } {
+  if (times.length < 2) return { times: [], values: [] }
+  const outT: number[] = []
+  const outV: (number | null)[] = []
+  for (let i = 1; i < times.length; i++) {
+    const a = values[i - 1]
+    const b = values[i]
+    outT.push(times[i])
+    if (a === null || b === null) {
+      outV.push(null)
+      continue
+    }
+    if (gapLimitMs !== undefined && times[i] - times[i - 1] > gapLimitMs) {
+      outV.push(null)
+      continue
+    }
+    outV.push(b - a)
+  }
+  return { times: outT, values: outV }
+}
+
+export type MergeMode = 'sum' | 'avg' | 'max' | 'min'
+
+/**
+ * 多成员按时间槽对齐：|t - 簇锚点| ≤ toleranceMs 归入同一槽。
+ * 同槽同成员：累计指标取 max，增量取 sum。
+ */
+export function alignMembersToSlots(
+  seriesTimes: number[][],
+  seriesValues: (number | null)[][],
+  toleranceMs: number = MERGE_TOLERANCE_MS,
+  sameMemberPolicy: 'max' | 'sum' = 'max'
+): { slots: number[]; aligned: (number | null)[][] } {
+  const all: { t: number; si: number; vi: number }[] = []
+  seriesTimes.forEach((times, si) => {
+    times.forEach((t, i) => {
+      const v = seriesValues[si]?.[i]
+      if (v === null || v === undefined || Number.isNaN(v)) return
+      all.push({ t, si, vi: v })
+    })
+  })
+  if (!all.length) return { slots: [], aligned: seriesTimes.map(() => []) }
+  all.sort((a, b) => a.t - b.t)
+
+  const clusters: { t: number; si: number; vi: number }[][] = []
+  let cur: { t: number; si: number; vi: number }[] = [all[0]]
+  let anchor = all[0].t
+  for (let i = 1; i < all.length; i++) {
+    if (all[i].t - anchor <= toleranceMs) {
+      cur.push(all[i])
+    } else {
+      clusters.push(cur)
+      cur = [all[i]]
+      anchor = all[i].t
+    }
+  }
+  clusters.push(cur)
+
+  const slots = clusters.map(c => {
+    const ts = c.map(x => x.t).sort((a, b) => a - b)
+    return ts[Math.floor(ts.length / 2)]
+  })
+  const aligned: (number | null)[][] = seriesTimes.map(() => slots.map(() => null))
+  clusters.forEach((c, slotIdx) => {
+    const best = new Map<number, number>()
+    for (const item of c) {
+      const prev = best.get(item.si)
+      if (prev === undefined) best.set(item.si, item.vi)
+      else if (sameMemberPolicy === 'sum') best.set(item.si, prev + item.vi)
+      else if (item.vi > prev) best.set(item.si, item.vi)
+    }
+    for (const [si, vi] of best) {
+      if (aligned[si]) aligned[si][slotIdx] = vi
+    }
+  })
+  return { slots, aligned }
+}
+
+/**
+ * 将对齐后的成员矩阵合并为单序列。
+ * - raw：缺员 LOCF（仅对已有基线的成员），再按 mode 聚合
+ * - delta：缺员/首点贡献 0；所有活跃成员均为 null 时合并点为 null
+ */
+export function mergeMemberSlots(
+  aligned: (number | null)[][],
+  mode: MergeMode,
+  histMode: 'raw' | 'delta'
+): (number | null)[] {
+  const memberCount = aligned.length
+  if (!memberCount) return []
+  const slotCount = aligned[0]?.length || 0
+  const out: (number | null)[] = []
+  const last: (number | null)[] = Array.from({ length: memberCount }, () => null)
+  const started: boolean[] = Array.from({ length: memberCount }, () => false)
+
+  for (let s = 0; s < slotCount; s++) {
+    const vals: number[] = []
+    let anyValue = false
+    let anyActive = false
+
+    for (let m = 0; m < memberCount; m++) {
+      const v = aligned[m]?.[s]
+      const has = v !== null && v !== undefined && !Number.isNaN(v)
+      if (has) {
+        started[m] = true
+        anyValue = true
+        anyActive = true
+        if (histMode === 'raw') {
+          last[m] = v
+          vals.push(v)
+        } else {
+          vals.push(v)
+        }
+      } else if (started[m]) {
+        anyActive = true
+        if (histMode === 'raw') {
+          const lv = last[m]
+          if (lv !== null && lv !== undefined) vals.push(lv)
+        }
+        // delta：缺员贡献 0（不 push）
+      }
+    }
+
+    if (!anyActive) {
+      out.push(null)
+      continue
+    }
+    if (!anyValue) {
+      // 活跃成员该槽均无有效值（真断档/全缺样）→ 断线
+      out.push(null)
+      continue
+    }
+    if (!vals.length) {
+      out.push(null)
+      continue
+    }
+    if (mode === 'sum') out.push(vals.reduce((a, b) => a + b, 0))
+    else if (mode === 'avg') out.push(vals.reduce((a, b) => a + b, 0) / vals.length)
+    else if (mode === 'max') out.push(Math.max(...vals))
+    else out.push(Math.min(...vals))
+  }
+  return out
+}
+
+/**
+ * 合并后序列再按时间桶重采样。
+ * raw：每桶末次值；delta：桶内增量求和（全 null 则 null）。
+ */
+export function resampleMergedSeries(
+  times: number[],
+  values: (number | null)[],
+  intervalMinutes: number,
+  histMode: 'raw' | 'delta'
+): { times: number[]; values: (number | null)[] } {
+  if (!times.length) return { times: [], values: [] }
+  const bucketMs = Math.max(1, intervalMinutes) * 60 * 1000
+  const order = times.map((_, i) => i).sort((a, b) => times[a] - times[b])
+  const bucketLast = new Map<number, { t: number; v: number | null }>()
+  const bucketSum = new Map<number, { t: number; sum: number; has: boolean }>()
+
+  for (const i of order) {
+    const t = times[i]
+    const v = values[i]
+    const key = Math.floor(t / bucketMs)
+    if (histMode === 'raw') {
+      const prev = bucketLast.get(key)
+      if (!prev || t >= prev.t) bucketLast.set(key, { t, v: v ?? null })
+    } else {
+      const prev = bucketSum.get(key)
+      const has = v !== null && v !== undefined && !Number.isNaN(v)
+      const sum = (prev?.sum || 0) + (has ? v : 0)
+      const tMax = prev && prev.t >= t ? prev.t : t
+      bucketSum.set(key, { t: tMax, sum, has: (prev?.has || false) || has })
+    }
+  }
+
+  const keys = [...(histMode === 'raw' ? bucketLast.keys() : bucketSum.keys())].sort((a, b) => a - b)
+  const outT: number[] = []
+  const outV: (number | null)[] = []
+  for (const k of keys) {
+    if (histMode === 'raw') {
+      const cell = bucketLast.get(k)!
+      outT.push(cell.t)
+      outV.push(cell.v)
+    } else {
+      const cell = bucketSum.get(k)!
+      outT.push(cell.t)
+      outV.push(cell.has ? cell.sum : null)
+    }
+  }
+  return { times: outT, values: outV }
 }
