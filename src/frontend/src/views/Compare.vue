@@ -253,6 +253,7 @@
         <LineChart
           ref="chartRef"
           :categories="chartCategories"
+          :point-times="chartPointTimes"
           :values="chartSeries"
           :log-mode="logMode"
           :left-axis-log="logMode"
@@ -937,6 +938,8 @@ const chartCategories = computed(() => {
   // filled in chartSeries computation via side cache
   return alignedCache.value.categories
 })
+/** tooltip 完整时间：与 categories 对齐的槽时间 */
+const chartPointTimes = computed(() => alignedCache.value.slots)
 
 /** 将展示项（成员 key 列表）合并为单条序列 */
 function buildMergedDisplaySeries(

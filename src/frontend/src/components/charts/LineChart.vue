@@ -97,6 +97,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import * as echarts from 'echarts'
+import { formatTimestamp } from '../../utils/format'
 
 interface SeriesItem {
   name: string
@@ -152,6 +153,8 @@ const props = withDefaults(defineProps<{
   showAvgLine?: boolean
   enableDelete?: boolean
   pointIds?: number[]
+  /** 与 categories 等长的毫秒时间戳；tooltip 标题显示完整年月日时分秒 */
+  pointTimes?: number[]
 }>(), {
   logMode: false,
   leftAxisLog: false,
@@ -162,6 +165,7 @@ const props = withDefaults(defineProps<{
   showAvgLine: false,
   enableDelete: false,
   pointIds: () => [],
+  pointTimes: () => [],
 })
 
 const chartRef = ref<HTMLDivElement>()
@@ -788,7 +792,12 @@ function renderChart() {
       formatter: (params: any) => {
         if (!Array.isArray(params) || params.length === 0) return ''
         const sorted = [...params].sort((a: any, b: any) => (b.value || 0) - (a.value || 0))
-        const header = sorted[0]?.axisValue || ''
+        const idx = sorted[0]?.dataIndex
+        const ts = typeof idx === 'number' ? props.pointTimes?.[idx] : undefined
+        // 悬停标题：完整年月日时分秒，不与横轴短标签共用
+        const header = ts
+          ? formatTimestamp(ts)
+          : (sorted[0]?.axisValue || '')
         const items = sorted.map((p: any) => {
           const color = p.color || '#ccc'
           const name = p.seriesName || ''

@@ -71,6 +71,7 @@
           <LineChart
             ref="upChartRef"
             :categories="upHistDates"
+            :point-times="upHistTimes"
             :values="upHistSeries"
             :log-mode="upLogMode"
             :left-axis-log="upLeftAxisLog"
@@ -283,6 +284,7 @@
           <LineChart
             ref="videoChartRef"
             :categories="videoHistDates"
+            :point-times="videoHistTimes"
             :values="videoHistSeries"
             :log-mode="videoLogMode"
             :left-axis-log="videoLeftAxisLog"
@@ -435,6 +437,7 @@
           <LineChart
             ref="dynamicChartRef"
             :categories="dynamicHistDates"
+            :point-times="dynamicHistTimes"
             :values="dynamicHistSeries"
             :log-mode="dynamicLogMode"
             :left-axis-log="dynamicLeftAxisLog"
@@ -550,6 +553,7 @@
           <LineChart
             ref="columnChartRef"
             :categories="columnHistDates"
+            :point-times="columnHistTimes"
             :values="columnHistSeries"
             :log-mode="columnLogMode"
             :left-axis-log="columnLeftAxisLog"
@@ -1028,6 +1032,10 @@ const upHistDates = computed(() => {
   const sliced = upHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
+const upHistTimes = computed(() => {
+  const timestamps = upChartData.value.map(h => h.created_at)
+  return upHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
+})
 
 /**
  * 构造增量系列（含异常间隔断线）：
@@ -1121,6 +1129,10 @@ const videoHistDates = computed(() => {
   const sliced = videoHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
+const videoHistTimes = computed(() => {
+  const timestamps = videoChartData.value.map(h => h.created_at)
+  return videoHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
+})
 const videoHistSeries = computed(() => {
   if (videoHistMode.value === 'decrease') {
     const decreaseValues = buildDecreaseSeries(videoChartData.value, 'comment')
@@ -1178,6 +1190,10 @@ const dynamicHistDates = computed(() => {
   const sliced = dynamicHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
 })
+const dynamicHistTimes = computed(() => {
+  const timestamps = dynamicChartData.value.map(h => h.created_at)
+  return dynamicHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
+})
 const dynamicHistSeries = computed(() => {
   if (dynamicHistMode.value === 'decrease') {
     const decreaseValues = buildDecreaseSeries(dynamicChartData.value, 'reply_count')
@@ -1216,6 +1232,10 @@ const columnHistDates = computed(() => {
   const timestamps = columnChartData.value.map(h => h.created_at)
   const sliced = columnHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
   return formatSmartTimestamps(sliced)
+})
+const columnHistTimes = computed(() => {
+  const timestamps = columnChartData.value.map(h => h.created_at)
+  return columnHistMode.value === 'delta' ? timestamps.slice(1) : timestamps
 })
 const columnHistSeries = computed(() => {
   if (columnHistMode.value === 'decrease') {
