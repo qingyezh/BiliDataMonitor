@@ -35,6 +35,9 @@ const DURATION_BUCKETS: [number, string][] = [
   [14400, '4小时以上'],
 ]
 
+/** 同一视频历史快照最小写入间隔：无论指标是否变化，60 秒内只允许一条 */
+const VIDEO_HISTORY_MIN_INTERVAL_MS = 60_000
+
 function migrate(d: SqliteDB): void {
   d.exec(`
     CREATE TABLE IF NOT EXISTS monitor_tasks (
@@ -288,6 +291,14 @@ export function getTaskByTarget(type: TaskType, target: string): MonitorTask | u
   return getDb().prepare('SELECT * FROM monitor_tasks WHERE task_type = ? AND target = ?').get(type, target) as MonitorTask | undefined
 }
 
+/** 当前启用的独立视频任务目标；UP 任务写库前必须排除这些 bvid */
+export function getActiveVideoTaskTargets(): Set<string> {
+  const rows = getDb().prepare(
+    "SELECT target FROM monitor_tasks WHERE task_type = 'video' AND enabled = 1"
+  ).all() as { target: string }[]
+  return new Set(rows.map(r => r.target))
+}
+
 export function createTask(t: Omit<MonitorTask, 'id' | 'created_at' | 'last_run_at' | 'last_status' | 'error'>): MonitorTask {
   const d = getDb()
   const created_at = Date.now()
@@ -366,14 +377,16 @@ export interface VideoSnapshotInput {
 
 /**
  * 写入一批视频快照（UP 任务）：
- * 1. 对比 videos 当前值，四项指标变化 → 插入 video_history（page_count 沿用已有值，不采集）
- * 2. upsert videos（不覆盖 page_count）
- * 3. 重算缓存表（up_metrics/up_daily_stats/up_duration_dist/up_monthly_trend/video_metrics）
+ * 1. 排除已启用独立 video 任务的 bvid（第二层独立性保护）
+ * 2. 与最近历史对比，60 秒内强制只写一条（与指标变化无关）
+ * 3. upsert videos（不覆盖 page_count）
+ * 4. 重算缓存表（up_metrics/up_daily_stats/up_duration_dist/up_monthly_trend/video_metrics）
  * 整体一个事务
  */
-export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now = Date.now()): { inserted: number; changed: number } {
+export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now = Date.now()): { inserted: number; changed: number; skipped: number } {
   const d = getDb()
   const tx = d.transaction(() => {
+    const independentTargets = getActiveVideoTaskTargets()
     const sel = d.prepare('SELECT * FROM videos WHERE bvid = ?')
     const upsert = d.prepare(`
       INSERT INTO videos (mid, bvid, title, play, video_review, comment, duration, created, updated_at)
@@ -397,30 +410,31 @@ export function writeUpSnapshot(mid: string, inputs: VideoSnapshotInput[], now =
     )
 
     let changed = 0
+    let skipped = 0
     for (const v of inputs) {
+      if (independentTargets.has(v.bvid)) {
+        skipped++
+        continue
+      }
       const existing = sel.get(v.bvid) as VideoRow | undefined
       const pageCount = existing?.page_count ?? 1
-      const isChanged = !existing ||
-        existing.play !== v.play ||
-        existing.video_review !== v.video_review ||
-        existing.comment !== v.comment ||
-        existing.duration !== v.duration
-      if (isChanged) {
-        const lastHist = selLastHist.get(v.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
-        const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
-          lastHist.play === v.play && lastHist.video_review === v.video_review &&
-          lastHist.comment === v.comment && lastHist.duration === v.duration
-        if (!tooClose) {
-          insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, pageCount, now)
-          changed++
-        }
+      const lastHist = selLastHist.get(v.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
+      const differsFromLastHistory = !lastHist ||
+        lastHist.play !== v.play ||
+        lastHist.video_review !== v.video_review ||
+        lastHist.comment !== v.comment ||
+        lastHist.duration !== v.duration
+      const tooClose = !!lastHist && now - lastHist.created_at < VIDEO_HISTORY_MIN_INTERVAL_MS
+      if (differsFromLastHistory && !tooClose) {
+        insHist.run(v.bvid, v.play, v.video_review, v.comment, v.duration, pageCount, now)
+        changed++
       }
       const { page_count: _skipPage, ...upsertRow } = v
       upsert.run({ ...upsertRow, updated_at: now })
     }
 
     recomputeUpCaches(mid, now)
-    return { inserted: inputs.length, changed }
+    return { inserted: inputs.length - skipped, changed, skipped }
   })
   return tx()
 }
@@ -437,18 +451,19 @@ export function writeVideoSnapshot(input: VideoSnapshotInput, now = Date.now()):
       existing.comment !== input.comment ||
       existing.duration !== input.duration ||
       existing.page_count !== pageCount
-    if (isChanged) {
-      const lastHist = d.prepare(
-        'SELECT play, video_review, comment, duration, page_count, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(input.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
-      const tooClose = lastHist && (now - lastHist.created_at < 60_000) &&
-        lastHist.play === input.play && lastHist.video_review === input.video_review &&
-        lastHist.comment === input.comment && lastHist.duration === input.duration &&
-        lastHist.page_count === pageCount
-      if (!tooClose) {
-        d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, page_count, created_at) VALUES (?,?,?,?,?,?,?)')
-          .run(input.bvid, input.play, input.video_review, input.comment, input.duration, pageCount, now)
-      }
+    const lastHist = d.prepare(
+      'SELECT play, video_review, comment, duration, page_count, created_at FROM video_history WHERE bvid = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(input.bvid) as { play: number; video_review: number; comment: number; duration: number; page_count: number; created_at: number } | undefined
+    const differsFromLastHistory = !lastHist ||
+      lastHist.play !== input.play ||
+      lastHist.video_review !== input.video_review ||
+      lastHist.comment !== input.comment ||
+      lastHist.duration !== input.duration ||
+      lastHist.page_count !== pageCount
+    const tooClose = !!lastHist && now - lastHist.created_at < VIDEO_HISTORY_MIN_INTERVAL_MS
+    if (differsFromLastHistory && !tooClose) {
+      d.prepare('INSERT INTO video_history (bvid, play, video_review, comment, duration, page_count, created_at) VALUES (?,?,?,?,?,?,?)')
+        .run(input.bvid, input.play, input.video_review, input.comment, input.duration, pageCount, now)
     }
     d.prepare(`
       INSERT INTO videos (mid, bvid, title, play, video_review, comment, duration, created, page_count, updated_at)
@@ -564,6 +579,13 @@ export function writeColumnSnapshot(cvid: string, info: {
 
 export function recomputeUpCaches(mid: string, now: number): void {
   const d = getDb()
+  const independentTargets = getActiveVideoTaskTargets()
+  const independentFilter = `
+    AND NOT EXISTS (
+      SELECT 1 FROM monitor_tasks mt
+      WHERE mt.task_type = 'video' AND mt.enabled = 1 AND mt.target = videos.bvid
+    )
+  `
 
   // up_metrics
   const agg = d.prepare(`
@@ -574,10 +596,10 @@ export function recomputeUpCaches(mid: string, now: number): void {
       COALESCE(SUM(comment),0) as total_comments,
       COALESCE(AVG(play),0) as avg_play,
       COALESCE(AVG(duration),0) as avg_duration
-    FROM videos WHERE mid = ?
+    FROM videos WHERE mid = ? ${independentFilter}
   `).get(mid) as { total_videos: number; total_views: number; total_danmaku: number; total_comments: number; avg_play: number; avg_duration: number }
 
-  const top = d.prepare('SELECT bvid, title, play FROM videos WHERE mid = ? ORDER BY play DESC LIMIT 1').get(mid) as { bvid: string; title: string; play: number } | undefined
+  const top = d.prepare(`SELECT bvid, title, play FROM videos WHERE mid = ? ${independentFilter} ORDER BY play DESC LIMIT 1`).get(mid) as { bvid: string; title: string; play: number } | undefined
 
   const ratio = agg.total_comments > 0
     ? `${(agg.total_views / agg.total_comments).toFixed(1)} : ${(agg.total_danmaku / agg.total_comments).toFixed(1)} : 1`
@@ -625,7 +647,7 @@ export function recomputeUpCaches(mid: string, now: number): void {
   )
 
   // up_duration_dist
-  const distRows = d.prepare('SELECT duration FROM videos WHERE mid = ?').all(mid) as { duration: number }[]
+  const distRows = d.prepare(`SELECT duration FROM videos WHERE mid = ? ${independentFilter}`).all(mid) as { duration: number }[]
   const counts = new Map<string, number>()
   for (const r of distRows) {
     let label = '4小时以上'
@@ -644,6 +666,7 @@ export function recomputeUpCaches(mid: string, now: number): void {
   // 受影响视频的 video_metrics
   const bvids = d.prepare('SELECT bvid FROM videos WHERE mid = ?').all(mid) as { bvid: string }[]
   for (const b of bvids) {
+    if (independentTargets.has(b.bvid)) continue
     recomputeVideoMetrics(b.bvid, now)
     maybeRecomputeVideoBoostIndex(b.bvid, now)
   }
@@ -651,9 +674,11 @@ export function recomputeUpCaches(mid: string, now: number): void {
 
 function recomputeMonthlyTrend(mid: string): void {
   const d = getDb()
+  const independentTargets = getActiveVideoTaskTargets()
   const bvids = d.prepare('SELECT bvid FROM videos WHERE mid = ?').all(mid) as { bvid: string }[]
   const months = new Map<string, { views: number; count: number; danmaku: number; comments: number }>()
   for (const b of bvids) {
+    if (independentTargets.has(b.bvid)) continue
     const rows = d.prepare('SELECT created_at FROM video_history WHERE bvid = ? ORDER BY created_at ASC').all(b.bvid) as { created_at: number }[]
     for (const r of rows) {
       const month = new Date(r.created_at).toISOString().slice(0, 7)

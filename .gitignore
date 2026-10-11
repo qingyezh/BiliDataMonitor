@@ -12,5 +12,6 @@ dist/
 *.local
 *.zip
 .mimocode/
+.codex/
 migrate.cjs
 AGENTS.md

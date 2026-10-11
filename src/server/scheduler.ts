@@ -6,7 +6,7 @@ import { logger } from './logger.js'
 import {
   getDb, listTasks, markTaskRun, writeUpSnapshot, writeVideoSnapshot,
   writeDynamicSnapshot, writeColumnSnapshot,
-  insertUpHistory, getSchedulerTaskCounts, type VideoSnapshotInput,
+  insertUpHistory, getSchedulerTaskCounts, getActiveVideoTaskTargets, type VideoSnapshotInput,
 } from './database.js'
 import { BilibiliAPI, parseLengthToSeconds } from './crawler/bilibili.js'
 import type { SchedulerStatus } from './types.js'
@@ -70,7 +70,10 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
     try {
       if (task.task_type === 'up') {
         const videos = await api.getAllUserVideos(Number(task.target), task.max_videos)
-        const inputs: VideoSnapshotInput[] = videos.map(v => ({
+        const independentTargets = getActiveVideoTaskTargets()
+        const independentSkipped = videos.filter(v => independentTargets.has(v.bvid)).length
+        const managedVideos = videos.filter(v => !independentTargets.has(v.bvid))
+        const inputs: VideoSnapshotInput[] = managedVideos.map(v => ({
           mid: task.target,
           bvid: v.bvid,
           title: v.title,
@@ -80,13 +83,14 @@ async function refreshOneTask(task: { id: number; task_type: string; target: str
           duration: parseLengthToSeconds(v.length),
           created: v.created,
         }))
-        if (inputs.length > 0) {
+        if (inputs.length > 0 || independentSkipped > 0) {
           writeUpSnapshot(task.target, inputs, now)
           insertUpHistory(task.target, now)
         }
         // 真实爬取完成：last_run_at=now，下次触发时间=now+间隔
         markTaskRun(task.id, 'ok', null, now + intervalMs)
-        logger.info(`[调度] UP任务完成: ${task.name}(${task.target}) ${inputs.length}个视频`)
+        const independentNote = independentSkipped > 0 ? `，独立视频跳过 ${independentSkipped} 个` : ''
+        logger.info(`[调度] UP任务完成: ${task.name}(${task.target}) ${inputs.length}个视频${independentNote}`)
         return true
       } else if (task.task_type === 'video') {
         const info = await api.getVideoInfo(task.target)
