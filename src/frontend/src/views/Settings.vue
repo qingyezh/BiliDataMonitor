@@ -1,27 +1,46 @@
 <template>
   <div v-loading="loading">
-    <div class="content-card">
-      <div class="card-title">⚙️ 监测设置</div>
-      <el-form label-width="140px" size="default" style="max-width: 520px">
-        <el-form-item label="轮询间隔">
-          <el-select v-model="settings.interval_minutes" style="width: 200px">
-            <el-option v-for="m in [5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]" :key="m" :value="m" :label="m >= 1440 ? '24小时' : m >= 60 ? `${m / 60}小时` : `${m}分钟`" />
-          </el-select>
-          <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">系统启动后每间隔自动轮询，即时生效</span>
-        </el-form-item>
-        <el-form-item label="默认监测视频数">
-          <el-input-number v-model="settings.default_max_videos" :min="0" :max="500" />
-          <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">新增UP主任务时的默认「最新N个」，0=全部</span>
-        </el-form-item>
-        <el-form-item label="服务端口">
-          <el-input-number v-model="settings.port" :min="1024" :max="65535" />
-          <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">修改后需重启服务生效</span>
-        </el-form-item>
-        <el-form-item>
-          <el-button v-if="isRoot" type="primary" :loading="saving" @click="saveSettings">保存设置</el-button>
-          <span v-if="!isRoot" style="color: var(--text-secondary); font-size: 12px">仅 root 用户可修改设置</span>
-        </el-form-item>
-      </el-form>
+    <!-- 上排：监测设置 + 调度器状态 两列 -->
+    <div class="settings-top-row">
+      <div class="content-card settings-col">
+        <div class="card-title">⚙️ 监测设置</div>
+        <el-form label-width="140px" size="default" style="max-width: 520px">
+          <el-form-item label="轮询间隔">
+            <el-select v-model="settings.interval_minutes" style="width: 200px">
+              <el-option v-for="m in [5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]" :key="m" :value="m" :label="m >= 1440 ? '24小时' : m >= 60 ? `${m / 60}小时` : `${m}分钟`" />
+            </el-select>
+            <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">系统启动后每间隔自动轮询，即时生效</span>
+          </el-form-item>
+          <el-form-item label="默认监测数">
+            <el-input-number v-model="settings.default_max_videos" :min="0" :max="500" />
+            <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">新增UP主任务时的默认「最新N个」，0=全部</span>
+          </el-form-item>
+          <el-form-item label="服务端口">
+            <el-input-number v-model="settings.port" :min="1024" :max="65535" />
+            <span style="margin-left: 8px; color: var(--text-secondary); font-size: 12px">修改后需重启服务生效</span>
+          </el-form-item>
+          <el-form-item>
+            <el-button v-if="isRoot" type="primary" :loading="saving" @click="saveSettings">保存设置</el-button>
+            <span v-if="!isRoot" style="color: var(--text-secondary); font-size: 12px">仅 root 用户可修改设置</span>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <div class="content-card settings-col">
+        <div class="card-title">⏰ 调度器状态</div>
+        <el-descriptions :column="2" border size="small" style="max-width: 560px">
+          <el-descriptions-item label="运行状态">
+            <el-tag :type="scheduler.running ? 'success' : 'danger'" size="small">{{ scheduler.running ? '运行中' : '已停止' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="执行中">
+            <el-tag :type="scheduler.in_flight ? 'warning' : 'info'" size="small">{{ scheduler.in_flight ? '正在轮询' : '空闲' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="任务数">{{ scheduler.task_counts?.enabled }}/{{ scheduler.task_counts?.total }}</el-descriptions-item>
+          <el-descriptions-item label="上次轮询">{{ formatTimestamp(scheduler.last_run_at) || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="下次轮询">{{ formatTimestamp(scheduler.next_run_at) || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="间隔">{{ scheduler.interval_minutes }} 分钟</el-descriptions-item>
+        </el-descriptions>
+      </div>
     </div>
 
     <!-- Cookie 管理（同 CrawlerAnalysis 模式） -->
@@ -42,30 +61,19 @@
               :model-value="cookieStatus.configured ? cookieStatus.masked : '未配置'"
               disabled
             />
-            <el-button v-if="!cookieEditing && isRoot" @click="startCookieEdit">覆盖</el-button>
-            <el-button v-else-if="isRoot" @click="cancelCookieEdit">取消</el-button>
+            <!-- 单按钮：未编辑=修改；编辑中=覆盖（无有效内容灰色，有内容可点）点击即保存 -->
+            <el-button
+              v-if="isRoot"
+              :type="cookieEditing ? (cookieValid ? 'primary' : 'default') : 'default'"
+              :disabled="cookieEditing && !cookieValid"
+              :loading="savingCookies"
+              @click="onCookieButtonClick"
+            >
+              {{ cookieEditing ? '覆盖' : '修改' }}
+            </el-button>
           </div>
         </el-form-item>
       </el-form>
-      <div class="card-footer" style="margin-top: 12px">
-        <el-button v-if="isRoot" type="primary" :loading="savingCookies" @click="saveCookies">保存 Cookie</el-button>
-      </div>
-    </div>
-
-    <div class="content-card">
-      <div class="card-title">⏰ 调度器状态</div>
-      <el-descriptions :column="2" border size="small" style="max-width: 560px">
-        <el-descriptions-item label="运行状态">
-          <el-tag :type="scheduler.running ? 'success' : 'danger'" size="small">{{ scheduler.running ? '运行中' : '已停止' }}</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="执行中">
-          <el-tag :type="scheduler.in_flight ? 'warning' : 'info'" size="small">{{ scheduler.in_flight ? '正在轮询' : '空闲' }}</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="任务数">{{ scheduler.task_counts?.enabled }}/{{ scheduler.task_counts?.total }}</el-descriptions-item>
-        <el-descriptions-item label="上次轮询">{{ formatTimestamp(scheduler.last_run_at) || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="下次轮询">{{ formatTimestamp(scheduler.next_run_at) || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="间隔">{{ scheduler.interval_minutes }} 分钟</el-descriptions-item>
-      </el-descriptions>
     </div>
 
     <div class="content-card">
@@ -154,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
 import { monitorApi, type AppSettings, type NearDuplicatePair, type HistoryKind } from '../api/monitor'
@@ -276,14 +284,26 @@ function startCookieEdit() {
   cookieInput.value = ''
 }
 
-function cancelCookieEdit() {
-  cookieEditing.value = false
-  cookieInput.value = ''
+/** 输入框是否为有效 Cookie（非空且像 Cookie 串） */
+const cookieValid = computed(() => {
+  const v = cookieInput.value.trim()
+  if (v.length < 20) return false
+  return v.includes('=') && (v.includes(';') || v.toLowerCase().includes('sessdata') || v.includes('bili_jct'))
+})
+
+/** 单按钮：修改 → 进入编辑；覆盖 → 有效时自动保存 */
+function onCookieButtonClick() {
+  if (!cookieEditing.value) {
+    startCookieEdit()
+    return
+  }
+  if (!cookieValid.value) return
+  void saveCookies()
 }
 
 async function saveCookies() {
-  if (!cookieInput.value.trim()) {
-    ElMessage.warning('请输入 Cookie')
+  if (!cookieValid.value) {
+    ElMessage.warning('请输入有效 Cookie')
     return
   }
   savingCookies.value = true
@@ -402,6 +422,22 @@ async function changePassword() {
 </script>
 
 <style scoped>
+.settings-top-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 0;
+  align-items: start;
+}
+.settings-col {
+  margin-bottom: 0;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .settings-top-row {
+    grid-template-columns: 1fr;
+  }
+}
 .dup-pair {
   border: 1px solid var(--border);
   border-radius: 8px;
