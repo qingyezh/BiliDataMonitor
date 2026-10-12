@@ -26,20 +26,37 @@
         </el-form>
       </div>
 
-      <div class="content-card settings-col">
-        <div class="card-title">⏰ 调度器状态</div>
-        <el-descriptions :column="2" border size="small" style="max-width: 560px">
-          <el-descriptions-item label="运行状态">
-            <el-tag :type="scheduler.running ? 'success' : 'danger'" size="small">{{ scheduler.running ? '运行中' : '已停止' }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="执行中">
-            <el-tag :type="scheduler.in_flight ? 'warning' : 'info'" size="small">{{ scheduler.in_flight ? '正在轮询' : '空闲' }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="任务数">{{ scheduler.task_counts?.enabled }}/{{ scheduler.task_counts?.total }}</el-descriptions-item>
-          <el-descriptions-item label="上次轮询">{{ formatTimestamp(scheduler.last_run_at) || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="下次轮询">{{ formatTimestamp(scheduler.next_run_at) || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="间隔">{{ scheduler.interval_minutes }} 分钟</el-descriptions-item>
-        </el-descriptions>
+      <div class="settings-right">
+        <div class="content-card settings-col">
+          <div class="card-title">⏰ 调度器状态</div>
+          <el-descriptions :column="2" border size="small" style="max-width: 560px">
+            <el-descriptions-item label="运行状态">
+              <el-tag :type="scheduler.running ? 'success' : 'danger'" size="small">{{ scheduler.running ? '运行中' : '已停止' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="执行中">
+              <el-tag :type="scheduler.in_flight ? 'warning' : 'info'" size="small">{{ scheduler.in_flight ? '正在轮询' : '空闲' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="任务数">{{ scheduler.task_counts?.enabled }}/{{ scheduler.task_counts?.total }}</el-descriptions-item>
+            <el-descriptions-item label="上次轮询">{{ formatTimestamp(scheduler.last_run_at) || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="下次轮询">{{ formatTimestamp(scheduler.next_run_at) || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="间隔">{{ scheduler.interval_minutes }} 分钟</el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <div class="content-card settings-col">
+          <div class="card-title">🖥️ 系统</div>
+          <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+            <div v-if="isRoot" style="display: flex; align-items: center; gap: 8px">
+              <span>开机自启动</span>
+              <el-switch v-model="autostartEnabled" :loading="autostartLoading" @change="toggleAutostart" />
+            </div>
+            <el-button v-if="isRoot" size="small" type="primary" :loading="backupLoading" @click="backupDatabase">备份数据库</el-button>
+            <el-button v-if="isRoot" size="small" type="danger" @click="clearAllData">清除数据</el-button>
+            <el-button v-if="isRoot" size="small" type="danger" plain @click="shutdownServer">关闭服务</el-button>
+            <el-button v-if="isRoot" size="small" type="primary" plain @click="$router.push('/users')">用户管理</el-button>
+            <el-button v-if="isRoot" size="small" @click="showPasswordDialog = true">修改密码</el-button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -76,20 +93,6 @@
       </el-form>
     </div>
 
-    <div class="content-card">
-      <div class="card-title">🖥️ 系统</div>
-      <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
-        <div v-if="isRoot" style="display: flex; align-items: center; gap: 8px">
-          <span>开机自启动</span>
-          <el-switch v-model="autostartEnabled" :loading="autostartLoading" @change="toggleAutostart" />
-        </div>
-        <el-button v-if="isRoot" size="small" type="primary" :loading="backupLoading" @click="backupDatabase">备份数据库</el-button>
-        <el-button v-if="isRoot" size="small" type="danger" @click="clearAllData">清除数据</el-button>
-        <el-button v-if="isRoot" size="small" type="danger" plain @click="shutdownServer">关闭服务</el-button>
-        <el-button v-if="isRoot" size="small" type="primary" plain @click="$router.push('/users')">用户管理</el-button>
-        <el-button v-if="isRoot" size="small" @click="showPasswordDialog = true">修改密码</el-button>
-      </div>
-    </div>
     <!-- 近重复历史点清理 -->
     <div class="content-card" v-if="isRoot">
       <div class="card-title" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
@@ -426,12 +429,24 @@ async function changePassword() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin-bottom: 0;
-  align-items: start;
+  margin-bottom: 16px;
+  align-items: stretch;
 }
 .settings-col {
   margin-bottom: 0;
   min-width: 0;
+}
+.settings-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.settings-top-row > .settings-col {
+  height: 100%;
+}
+.settings-right .settings-col {
+  flex: 1 1 auto;
 }
 @media (max-width: 1100px) {
   .settings-top-row {
