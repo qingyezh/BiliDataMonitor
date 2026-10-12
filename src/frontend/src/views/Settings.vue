@@ -46,13 +46,8 @@
         <div class="content-card settings-col">
           <div class="card-title">🖥️ 系统</div>
           <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
-            <div v-if="isRoot" style="display: flex; align-items: center; gap: 8px">
-              <span>开机自启动</span>
-              <el-switch v-model="autostartEnabled" :loading="autostartLoading" @change="toggleAutostart" />
-            </div>
             <el-button v-if="isRoot" size="small" type="primary" :loading="backupLoading" @click="backupDatabase">备份数据库</el-button>
             <el-button v-if="isRoot" size="small" type="danger" @click="clearAllData">清除数据</el-button>
-            <el-button v-if="isRoot" size="small" type="danger" plain @click="shutdownServer">关闭服务</el-button>
             <el-button v-if="isRoot" size="small" type="primary" plain @click="$router.push('/users')">用户管理</el-button>
             <el-button v-if="isRoot" size="small" @click="showPasswordDialog = true">修改密码</el-button>
           </div>
@@ -175,8 +170,6 @@ const loading = ref(false)
 const saving = ref(false)
 const settings = ref<AppSettings>({ port: 8123, interval_minutes: 30, default_max_videos: 10, cookie_mask: '', open_browser: true })
 const scheduler = ref<any>({})
-const autostartEnabled = ref(false)
-const autostartLoading = ref(false)
 const backupLoading = ref(false)
 const isRoot = localStorage.getItem('user_role') === 'root'
 const showPasswordDialog = ref(false)
@@ -267,15 +260,13 @@ async function deleteSelectedDups() {
 async function loadAll() {
   loading.value = true
   try {
-    const [s, sch, au, ck] = await Promise.all([
+    const [s, sch, ck] = await Promise.all([
       monitorApi.settings().catch(() => null),
       monitorApi.schedulerStatus().catch(() => null),
-      monitorApi.autostart().catch(() => null),
       monitorApi.cookieStatus().catch(() => null),
     ])
     if (s) settings.value = s
     if (sch) scheduler.value = sch
-    if (au) autostartEnabled.value = !!au.enabled
     if (ck) cookieStatus.value = ck
   } finally {
     loading.value = false
@@ -340,24 +331,6 @@ async function saveSettings() {
   }
 }
 
-async function toggleAutostart(val: boolean | string | number) {
-  autostartLoading.value = true
-  try {
-    if (val) {
-      await monitorApi.enableAutostart()
-      ElMessage.success('已启用开机自启动')
-    } else {
-      await monitorApi.disableAutostart()
-      ElMessage.success('已关闭开机自启动')
-    }
-  } catch (e: any) {
-    autostartEnabled.value = !val
-    ElMessage.error(e?.response?.data?.message || '操作失败')
-  } finally {
-    autostartLoading.value = false
-  }
-}
-
 async function backupDatabase() {
   backupLoading.value = true
   try {
@@ -384,16 +357,6 @@ async function clearAllData() {
     location.reload()
   } catch (e: any) {
     if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('清除失败')
-  }
-}
-
-async function shutdownServer() {
-  try {
-    await ElMessageBox.confirm('确认关闭后端服务？', '关闭服务', { type: 'warning' })
-    await fetch('/api/system/shutdown', { method: 'POST' })
-    ElMessage.success('服务已关闭')
-  } catch (e: any) {
-    if (e !== 'cancel' && e?.message !== 'cancel') ElMessage.error('关闭失败')
   }
 }
 
