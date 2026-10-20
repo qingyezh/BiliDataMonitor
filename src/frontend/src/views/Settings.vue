@@ -90,10 +90,10 @@
               :class="`cookie-age-${cookieAgeLevel}`"
               :style="{ color: cookieHealthColor }"
             >
-              <span>{{ cookieHealthLine }}</span>
               <span v-if="cookieAgeLabel" class="cookie-age-box" :class="`cookie-age-${cookieAgeLevel}`">
                 距上次更新 {{ cookieAgeLabel }}
               </span>
+              <span class="cookie-health-text">{{ cookieHealthLine }}</span>
             </div>
           </div>
         </el-form-item>
@@ -497,14 +497,34 @@ async function changePassword() {
 }
 .cookie-health {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 12px;
   line-height: 1.4;
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid transparent;
+}
+.cookie-health-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cookie-age-box {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7.5em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fff;
 }
 .cookie-health.cookie-age-ok {
   background: rgba(103, 194, 58, 0.12);
@@ -517,19 +537,6 @@ async function changePassword() {
 .cookie-health.cookie-age-danger {
   background: rgba(245, 108, 108, 0.14);
   border-color: rgba(245, 108, 108, 0.45);
-}
-.cookie-age-box {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 7.5em;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #fff;
 }
 .cookie-age-box.cookie-age-ok {
   background: #67c23a;
