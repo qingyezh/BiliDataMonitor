@@ -1,6 +1,9 @@
 // B站 Cookie 健康检查（nav isLogin）
-import { getCookie } from './config.js'
+// 时间戳持久化到 cookie_config.json.health，避免重启后「距上次更新」被重置为 0
+import fs from 'node:fs'
+import { COOKIE_PATH, getCookie } from './config.js'
 import { logger } from './logger.js'
+import { createHash } from 'node:crypto'
 
 export const COOKIE_CHECK_INTERVAL_MS = 15 * 60 * 1000
 export const COOKIE_STALE_HOURS = 72
@@ -13,28 +16,88 @@ export interface CookieHealth {
   lastCheckedAt: number | null
   lastValidAt: number | null
   lastSavedAt: number | null
-  /** true = 已配置且有效，但距 lastValidAt/lastSavedAt 超过 72h，建议刷新 */
+  /** true = 已配置且有效，但距「上次更新」超过 72h，建议刷新 */
   stale: boolean
   reason: 'ok' | 'empty' | 'invalid' | 'stale' | 'unchecked'
 }
 
-type PersistedHealth = Omit<CookieHealth, 'configured' | 'stale' | 'reason'>
+interface PersistedHealth {
+  valid: boolean
+  code: number | null
+  message: string | null
+  lastCheckedAt: number | null
+  lastValidAt: number | null
+  lastSavedAt: number | null
+  /** cookie 内容指纹：内容变化时可识别为「已更新」 */
+  cookieHash: string | null
+}
 
 const NAV_URL = 'https://api.bilibili.com/x/web-interface/nav'
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
-let memory: PersistedHealth = {
-  valid: false,
-  code: null,
-  message: null,
-  lastCheckedAt: null,
-  lastValidAt: null,
-  lastSavedAt: null,
+function emptyPersisted(): PersistedHealth {
+  return {
+    valid: false,
+    code: null,
+    message: null,
+    lastCheckedAt: null,
+    lastValidAt: null,
+    lastSavedAt: null,
+    cookieHash: null,
+  }
 }
 
+function hashCookie(cookie: string): string {
+  return createHash('sha256').update(cookie.trim()).digest('hex').slice(0, 32)
+}
+
+function readCookieFile(): Record<string, unknown> {
+  try {
+    if (fs.existsSync(COOKIE_PATH)) {
+      return JSON.parse(fs.readFileSync(COOKIE_PATH, 'utf-8'))
+    }
+  } catch {
+    /* ignore */
+  }
+  return {}
+}
+
+function persistHealth(h: PersistedHealth): void {
+  try {
+    const existing = readCookieFile()
+    existing.health = h
+    fs.mkdirSync(COOKIE_PATH.replace(/[\\/][^\\/]+$/, ''), { recursive: true })
+    fs.writeFileSync(COOKIE_PATH, JSON.stringify(existing, null, 2), 'utf-8')
+  } catch (e) {
+    logger.warn(`[Cookie] 健康时间戳写入失败: ${(e as Error).message}`)
+  }
+}
+
+function loadPersisted(): PersistedHealth {
+  const raw = readCookieFile()
+  const h = raw.health
+  if (!h || typeof h !== 'object') return emptyPersisted()
+  const o = h as Partial<PersistedHealth>
+  return {
+    valid: Boolean(o.valid),
+    code: typeof o.code === 'number' ? o.code : null,
+    message: typeof o.message === 'string' ? o.message : null,
+    lastCheckedAt: typeof o.lastCheckedAt === 'number' ? o.lastCheckedAt : null,
+    lastValidAt: typeof o.lastValidAt === 'number' ? o.lastValidAt : null,
+    lastSavedAt: typeof o.lastSavedAt === 'number' ? o.lastSavedAt : null,
+    cookieHash: typeof o.cookieHash === 'string' ? o.cookieHash : null,
+  }
+}
+
+let memory: PersistedHealth = loadPersisted()
 let checking = false
 let timer: ReturnType<typeof setInterval> | null = null
+
+/** 「距上次更新」锚点：优先 lastSavedAt（用户保存 Cookie），其次 lastValidAt */
+export function updateAnchorAt(h: Pick<CookieHealth, 'lastSavedAt' | 'lastValidAt'>): number | null {
+  return h.lastSavedAt ?? h.lastValidAt ?? null
+}
 
 export function getCachedCookieHealth(): CookieHealth {
   return decorate(memory)
@@ -42,25 +105,39 @@ export function getCachedCookieHealth(): CookieHealth {
 
 function decorate(h: PersistedHealth): CookieHealth {
   const configured = Boolean(getCookie())
+  const base = {
+    valid: h.valid,
+    code: h.code,
+    message: h.message,
+    lastCheckedAt: h.lastCheckedAt,
+    lastValidAt: h.lastValidAt,
+    lastSavedAt: h.lastSavedAt,
+  }
   if (!configured) {
-    return { ...h, configured: false, valid: false, stale: false, reason: 'empty' }
+    return { ...base, configured: false, valid: false, stale: false, reason: 'empty' }
   }
   if (h.lastCheckedAt === null) {
-    return { ...h, configured: true, valid: false, stale: false, reason: 'unchecked' }
+    return { ...base, configured: true, valid: false, stale: false, reason: 'unchecked' }
   }
-  const anchor = Math.max(h.lastValidAt || 0, h.lastSavedAt || 0)
+  const anchor = updateAnchorAt(base)
   const stale =
     !h.valid ||
-    (anchor > 0 && Date.now() - anchor > COOKIE_STALE_HOURS * 3600 * 1000)
+    (anchor !== null && Date.now() - anchor > COOKIE_STALE_HOURS * 3600 * 1000)
   let reason: CookieHealth['reason'] = 'ok'
   if (!h.valid) reason = 'invalid'
   else if (stale) reason = 'stale'
-  return { ...h, configured: true, valid: h.valid, stale, reason }
+  return { ...base, configured: true, valid: h.valid, stale, reason }
 }
 
-/** 写入 cookie 后标记新保存时间，并立即检查一次 */
+/** 写入 cookie 后标记「已更新」时间锁，并立即检查 */
 export async function onCookieSaved(): Promise<CookieHealth> {
-  memory = { ...memory, lastSavedAt: Date.now() }
+  const cookie = getCookie().trim()
+  memory = {
+    ...memory,
+    lastSavedAt: Date.now(),
+    cookieHash: cookie ? hashCookie(cookie) : null,
+  }
+  persistHealth(memory)
   await checkCookieHealth(true)
   return getCachedCookieHealth()
 }
@@ -73,14 +150,34 @@ export async function checkCookieHealth(force = false): Promise<CookieHealth> {
     const now = Date.now()
     if (!cookie) {
       memory = {
-        valid: false,
-        code: null,
-        message: '未配置 Cookie',
+        ...emptyPersisted(),
         lastCheckedAt: now,
         lastValidAt: memory.lastValidAt,
         lastSavedAt: memory.lastSavedAt,
+        cookieHash: memory.cookieHash,
       }
+      persistHealth(memory)
       return getCachedCookieHealth()
+    }
+
+    const cookieHash = hashCookie(cookie)
+    // 内容变了但未走 save 接口（例如手工改文件）→ 记为一次更新
+    if (memory.cookieHash && memory.cookieHash !== cookieHash && !memory.lastSavedAt) {
+      memory = { ...memory, lastSavedAt: now, cookieHash }
+    } else if (!memory.cookieHash) {
+      memory = { ...memory, cookieHash }
+      // 首次纳入管理：若无 lastSavedAt，用当前 cookie 的保存时间来自文件 mtime
+      if (!memory.lastSavedAt) {
+        try {
+          memory.lastSavedAt = Math.floor(fs.statSync(COOKIE_PATH).mtimeMs)
+        } catch {
+          memory.lastSavedAt = now
+        }
+      }
+      persistHealth(memory)
+    } else if (memory.cookieHash !== cookieHash) {
+      memory = { ...memory, lastSavedAt: now, cookieHash }
+      persistHealth(memory)
     }
 
     // 避免过于频繁（force 用于保存后立即校验）
@@ -120,13 +217,18 @@ export async function checkCookieHealth(force = false): Promise<CookieHealth> {
       code,
       message,
       lastCheckedAt: now,
+      // lastValidAt 仅表示「最近一次校验通过」，不等于用户更新 Cookie
       lastValidAt: valid ? now : memory.lastValidAt,
       lastSavedAt: memory.lastSavedAt,
+      cookieHash,
     }
+    persistHealth(memory)
     if (!valid) {
       logger.warn(`[Cookie] 健康检查失败 code=${code} msg=${message || '未知'}`)
     } else {
-      logger.info('[Cookie] 健康检查通过（isLogin=true）')
+      logger.info(
+        `[Cookie] 健康检查通过（isLogin=true）上次更新=${memory.lastSavedAt ? new Date(memory.lastSavedAt).toISOString() : '—'}`,
+      )
     }
     return getCachedCookieHealth()
   } finally {
@@ -136,11 +238,15 @@ export async function checkCookieHealth(force = false): Promise<CookieHealth> {
 
 export function startCookieHealthMonitor(): void {
   if (timer) return
+  memory = loadPersisted()
+  logger.info(
+    `[Cookie] 已加载持久化时间戳 lastSavedAt=${memory.lastSavedAt ? new Date(memory.lastSavedAt).toISOString() : 'null'}`,
+  )
   void checkCookieHealth(true)
   timer = setInterval(() => {
     void checkCookieHealth(false)
   }, COOKIE_CHECK_INTERVAL_MS)
-  logger.info('[Cookie] 健康检查已启动：每 15 分钟校验登录态，过期或 72h 未刷新告警')
+  logger.info('[Cookie] 健康检查已启动：每 15 分钟校验登录态，距上次更新超 72h 告警')
 }
 
 export function stopCookieHealthMonitor(): void {

@@ -1,5 +1,12 @@
 # 版本记录
 
+## v0.2.2.36 (2026-10-20)
+
+- fix: Cookie「距上次更新」时间戳持久化
+  - lastSavedAt/lastValidAt/lastCheckedAt 写入 cookie_config.json.health，重启不丢
+  - 距上次更新优先 lastSavedAt（保存时间锁）；校验通过只更新 lastValidAt，不重置时长
+  - Cookie 内容哈希变化视为一次更新；首次无记录时用配置文件 mtime
+
 ## v0.2.2.35 (2026-10-20)
 
 - fix: 设置页 Cookie 状态行时长方框移到文案前，同行单行展示

@@ -73,7 +73,8 @@ const cookieAlert = computed(() => {
 const cookieAgeHours = computed(() => {
   const h = cookieHealth.value
   if (!h || !h.configured) return null
-  const anchor = Math.max(h.lastValidAt || 0, h.lastSavedAt || 0)
+  // 「距上次更新」= 用户保存 Cookie 的时间；未保存过则退回最近有效校验时间
+  const anchor = h.lastSavedAt ?? h.lastValidAt ?? null
   if (!anchor) return null
   return Math.max(0, (nowTick.value - anchor) / 3_600_000)
 })

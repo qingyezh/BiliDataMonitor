@@ -301,11 +301,11 @@ const cookieHealthLine = computed(() => {
   return `${base} · 最近有效 ${fmt(h.lastValidAt)}`
 })
 
-/** 距上次更新锚点：有效校验时间与保存时间取较新者 */
+/** 距上次更新锚点：优先 lastSavedAt（保存 Cookie 的时间锁），否则 lastValidAt */
 const cookieUpdatedAnchor = computed(() => {
   const h = cookieHealth.value
   if (!h || !h.configured) return null
-  return Math.max(h.lastValidAt || 0, h.lastSavedAt || 0) || null
+  return h.lastSavedAt ?? h.lastValidAt ?? null
 })
 
 const cookieAgeHours = computed(() => {
