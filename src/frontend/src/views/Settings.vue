@@ -84,8 +84,17 @@
               {{ cookieEditing ? '覆盖' : '修改' }}
             </el-button>
           </div>
-          <div v-if="cookieHealthLine" class="cookie-health" :style="{ color: cookieHealthColor }">
-            {{ cookieHealthLine }}
+          <div v-if="cookieHealthLine || cookieAgeLabel" class="cookie-health-row">
+            <div
+              class="cookie-health"
+              :class="`cookie-age-${cookieAgeLevel}`"
+              :style="{ color: cookieHealthColor }"
+            >
+              <span>{{ cookieHealthLine }}</span>
+              <span v-if="cookieAgeLabel" class="cookie-age-box" :class="`cookie-age-${cookieAgeLevel}`">
+                距上次更新 {{ cookieAgeLabel }}
+              </span>
+            </div>
           </div>
         </el-form-item>
       </el-form>
@@ -163,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
 import { monitorApi, type AppSettings, type NearDuplicatePair, type HistoryKind, type CookieHealth } from '../api/monitor'
@@ -181,6 +190,8 @@ const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: ''
 // Cookie 管理（同 CrawlerAnalysis 模式）
 const cookieStatus = ref<{ configured: boolean; masked: string }>({ configured: false, masked: '' })
 const cookieHealth = ref<CookieHealth | null>(null)
+const nowTick = ref(Date.now())
+let healthTickTimer: ReturnType<typeof setInterval> | null = null
 const cookieEditing = ref(false)
 const cookieInput = ref('')
 const savingCookies = ref(false)
@@ -290,11 +301,42 @@ const cookieHealthLine = computed(() => {
   return `${base} · 最近有效 ${fmt(h.lastValidAt)}`
 })
 
+/** 距上次更新锚点：有效校验时间与保存时间取较新者 */
+const cookieUpdatedAnchor = computed(() => {
+  const h = cookieHealth.value
+  if (!h || !h.configured) return null
+  return Math.max(h.lastValidAt || 0, h.lastSavedAt || 0) || null
+})
+
+const cookieAgeHours = computed(() => {
+  const anchor = cookieUpdatedAnchor.value
+  if (!anchor) return null
+  return Math.max(0, (nowTick.value - anchor) / 3_600_000)
+})
+
+const cookieAgeLabel = computed(() => {
+  const h = cookieAgeHours.value
+  if (h === null) return ''
+  return `${h.toFixed(1)} 小时`
+})
+
+/** 绿 <48h；黄 48–72h；红 >72h 或登录态无效 */
+const cookieAgeLevel = computed<'ok' | 'warn' | 'danger'>(() => {
+  const h = cookieHealth.value
+  if (!h || !h.configured) return 'ok'
+  if (!h.valid || h.reason === 'invalid') return 'danger'
+  const hours = cookieAgeHours.value
+  if (hours === null) return 'warn'
+  if (hours > 72) return 'danger'
+  if (hours >= 48) return 'warn'
+  return 'ok'
+})
+
 const cookieHealthColor = computed(() => {
-  const r = cookieHealth.value?.reason
-  if (r === 'invalid') return '#f56c6c'
-  if (r === 'stale' || r === 'unchecked') return '#e6a23c'
-  return 'var(--text-secondary)'
+  const level = cookieAgeLevel.value
+  if (level === 'danger') return '#f56c6c'
+  if (level === 'warn') return '#e6a23c'
+  return '#67c23a'
 })
 
 function startCookieEdit() {
@@ -385,7 +427,16 @@ async function clearAllData() {
   }
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  void loadAll()
+  healthTickTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
+})
+
+onUnmounted(() => {
+  if (healthTickTimer) clearInterval(healthTickTimer)
+})
 
 async function changePassword() {
   if (!passwordForm.value.oldPassword || !passwordForm.value.newPassword) {
@@ -441,10 +492,53 @@ async function changePassword() {
     grid-template-columns: 1fr;
   }
 }
+.cookie-health-row {
+  margin-top: 8px;
+}
 .cookie-health {
-  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.cookie-health.cookie-age-ok {
+  background: rgba(103, 194, 58, 0.12);
+  border-color: rgba(103, 194, 58, 0.35);
+}
+.cookie-health.cookie-age-warn {
+  background: rgba(230, 162, 60, 0.14);
+  border-color: rgba(230, 162, 60, 0.4);
+}
+.cookie-health.cookie-age-danger {
+  background: rgba(245, 108, 108, 0.14);
+  border-color: rgba(245, 108, 108, 0.45);
+}
+.cookie-age-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7.5em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fff;
+}
+.cookie-age-box.cookie-age-ok {
+  background: #67c23a;
+}
+.cookie-age-box.cookie-age-warn {
+  background: #e6a23c;
+}
+.cookie-age-box.cookie-age-danger {
+  background: #f56c6c;
 }
 .dup-pair {
   border: 1px solid var(--border);

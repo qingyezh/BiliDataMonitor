@@ -18,6 +18,19 @@
               </el-badge>
             </span>
           </el-tooltip>
+          <el-tooltip
+            v-if="cookieAgeLabel"
+            :content="`距上次更新 ${cookieAgeLabel} · 点击打开设置`"
+            placement="bottom"
+          >
+            <span
+              class="cookie-age-chip"
+              :class="`cookie-age-${cookieAgeLevel}`"
+              @click="$router.push('/settings')"
+            >
+              Cookie {{ cookieAgeLabel }}
+            </span>
+          </el-tooltip>
           <el-button link @click="$router.push('/')">监测列表</el-button>
           <el-button link @click="$router.push('/compare')">对比</el-button>
           <el-button link @click="$router.push('/settings')">设置</el-button>
@@ -36,6 +49,8 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { monitorApi, type CookieHealth } from './api/monitor'
 
 const cookieHealth = ref<CookieHealth | null>(null)
+/** 每分钟刷新，驱动时长文案 */
+const nowTick = ref(Date.now())
 const cookieAlert = computed(() => {
   const h = cookieHealth.value
   if (!h || !h.configured) return null
@@ -55,6 +70,31 @@ const cookieAlert = computed(() => {
   return null
 })
 
+const cookieAgeHours = computed(() => {
+  const h = cookieHealth.value
+  if (!h || !h.configured) return null
+  const anchor = Math.max(h.lastValidAt || 0, h.lastSavedAt || 0)
+  if (!anchor) return null
+  return Math.max(0, (nowTick.value - anchor) / 3_600_000)
+})
+
+const cookieAgeLabel = computed(() => {
+  const h = cookieAgeHours.value
+  if (h === null) return ''
+  return `${h.toFixed(1)}h`
+})
+
+const cookieAgeLevel = computed<'ok' | 'warn' | 'danger'>(() => {
+  const h = cookieHealth.value
+  if (!h || !h.configured) return 'ok'
+  if (!h.valid || h.reason === 'invalid') return 'danger'
+  const hours = cookieAgeHours.value
+  if (hours === null) return 'warn'
+  if (hours > 72) return 'danger'
+  if (hours >= 48) return 'warn'
+  return 'ok'
+})
+
 async function refreshCookieHealth() {
   try {
     cookieHealth.value = await monitorApi.cookieHealth()
@@ -64,16 +104,21 @@ async function refreshCookieHealth() {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null
+let tickTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   void refreshCookieHealth()
   timer = setInterval(() => {
     void refreshCookieHealth()
   }, 5 * 60 * 1000)
+  tickTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (tickTimer) clearInterval(tickTimer)
 })
 </script>
 
@@ -96,6 +141,22 @@ html, body, #app { margin: 0; padding: 0; height: 100%; font-family: -apple-syst
 .cookie-alert { cursor: pointer; display: inline-flex; align-items: center; margin-right: 4px; }
 .cookie-badge .el-badge__content.is-dot { top: 6px; right: 8px; }
 .cookie-alert-icon { font-size: 16px; line-height: 1; }
+.cookie-age-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.cookie-age-chip.cookie-age-ok { background: #67c23a; }
+.cookie-age-chip.cookie-age-warn { background: #e6a23c; }
+.cookie-age-chip.cookie-age-danger { background: #f56c6c; }
 .main { flex: 1; padding: 20px 24px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .content-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 .card-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; }
