@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { loadSettings, saveSettings, refreshCookieMask, ROOT_DIR, getCookie, maskCookie, saveCookie, DB_PATH, DATA_DIR } from '../config.js'
 import { getSchedulerStatus } from '../scheduler.js'
+import { checkCookieHealth, getCachedCookieHealth, onCookieSaved } from '../cookieHealth.js'
 import { cleanupOldData, clearAllData } from '../database.js'
 import { logger } from '../logger.js'
 import { requireRoot } from '../middleware.js'
@@ -128,14 +129,26 @@ export default async function systemRoutes(app: FastifyInstance): Promise<void> 
     }
   })
 
-  // 保存 Cookie（覆盖）
+  // Cookie 健康状态（供顶栏告警）
+  app.get('/cookies/health', async () => {
+    return { success: true, data: getCachedCookieHealth() }
+  })
+
+  // 立即检查一次 Cookie
+  app.post('/cookies/check', async () => {
+    const data = await checkCookieHealth(true)
+    return { success: true, data }
+  })
+
+  // 保存 Cookie（覆盖）并立即校验
   app.put('/cookies', { preHandler: [requireRoot] }, async (req, reply) => {
     const body = (req.body || {}) as { cookie?: string }
     if (body.cookie === undefined) {
       return reply.code(400).send({ success: false, message: '缺少 cookie 字段' })
     }
     saveCookie(body.cookie)
-    return { success: true, message: 'Cookie 已保存' }
+    const health = await onCookieSaved()
+    return { success: true, message: 'Cookie 已保存', data: health }
   })
 
   app.get('/autostart', async () => {

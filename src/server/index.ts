@@ -5,6 +5,7 @@ import { ensureAppDirs, loadSettings, refreshCookieMask, WEB_DIR } from './confi
 import { logger, archiveOldLogs } from './logger.js'
 import { getDb, cleanupOldData } from './database.js'
 import { startScheduler } from './scheduler.js'
+import { startCookieHealthMonitor } from './cookieHealth.js'
 import monitorRoutes from './routes/monitor.js'
 import upRoutes from './routes/up.js'
 import videoRoutes from './routes/video.js'
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   // 启动调度器
   startScheduler()
   refreshCookieMask()
+  startCookieHealthMonitor()
 
   await app.listen({ port, host: '0.0.0.0' })
   const url = `http://0.0.0.0:${port}`

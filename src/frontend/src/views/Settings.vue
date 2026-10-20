@@ -84,6 +84,9 @@
               {{ cookieEditing ? '覆盖' : '修改' }}
             </el-button>
           </div>
+          <div v-if="cookieHealthLine" class="cookie-health" :style="{ color: cookieHealthColor }">
+            {{ cookieHealthLine }}
+          </div>
         </el-form-item>
       </el-form>
     </div>
@@ -163,7 +166,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
-import { monitorApi, type AppSettings, type NearDuplicatePair, type HistoryKind } from '../api/monitor'
+import { monitorApi, type AppSettings, type NearDuplicatePair, type HistoryKind, type CookieHealth } from '../api/monitor'
 import { formatTimestamp, formatNum } from '../utils/format'
 
 const loading = ref(false)
@@ -177,6 +180,7 @@ const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: ''
 
 // Cookie 管理（同 CrawlerAnalysis 模式）
 const cookieStatus = ref<{ configured: boolean; masked: string }>({ configured: false, masked: '' })
+const cookieHealth = ref<CookieHealth | null>(null)
 const cookieEditing = ref(false)
 const cookieInput = ref('')
 const savingCookies = ref(false)
@@ -260,18 +264,38 @@ async function deleteSelectedDups() {
 async function loadAll() {
   loading.value = true
   try {
-    const [s, sch, ck] = await Promise.all([
+    const [s, sch, ck, ch] = await Promise.all([
       monitorApi.settings().catch(() => null),
       monitorApi.schedulerStatus().catch(() => null),
       monitorApi.cookieStatus().catch(() => null),
+      monitorApi.cookieHealth().catch(() => null),
     ])
     if (s) settings.value = s
     if (sch) scheduler.value = sch
     if (ck) cookieStatus.value = ck
+    if (ch) cookieHealth.value = ch
   } finally {
     loading.value = false
   }
 }
+
+const cookieHealthLine = computed(() => {
+  const h = cookieHealth.value
+  if (!h || !h.configured) return ''
+  const fmt = (ts: number | null) => (ts ? formatTimestamp(ts) : '—')
+  const base = `上次检查 ${fmt(h.lastCheckedAt)} · 登录态 ${h.valid ? '有效' : h.reason === 'stale' ? '有效但超时' : '无效'}`
+  if (h.reason === 'invalid') return `${base}（${h.message || '请更新 Cookie'}）`
+  if (h.reason === 'stale') return `${base} · 已超 72 小时，建议更新`
+  if (h.reason === 'unchecked') return 'Cookie 尚未检查，服务启动后约 15 分钟内完成'
+  return `${base} · 最近有效 ${fmt(h.lastValidAt)}`
+})
+
+const cookieHealthColor = computed(() => {
+  const r = cookieHealth.value?.reason
+  if (r === 'invalid') return '#f56c6c'
+  if (r === 'stale' || r === 'unchecked') return '#e6a23c'
+  return 'var(--text-secondary)'
+})
 
 function startCookieEdit() {
   cookieEditing.value = true
@@ -307,6 +331,7 @@ async function saveCookies() {
     cookieEditing.value = false
     cookieInput.value = ''
     cookieStatus.value = await monitorApi.cookieStatus()
+    cookieHealth.value = await monitorApi.cookieHealth().catch(() => null)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '保存失败')
   } finally {
@@ -415,6 +440,11 @@ async function changePassword() {
   .settings-top-row {
     grid-template-columns: 1fr;
   }
+}
+.cookie-health {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 .dup-pair {
   border: 1px solid var(--border);

@@ -131,6 +131,18 @@ export interface CompareTarget {
   name: string
 }
 
+export interface CookieHealth {
+  configured: boolean
+  valid: boolean
+  code: number | null
+  message: string | null
+  lastCheckedAt: number | null
+  lastValidAt: number | null
+  lastSavedAt: number | null
+  stale: boolean
+  reason: 'ok' | 'empty' | 'invalid' | 'stale' | 'unchecked'
+}
+
 export interface AppSettings {
   port: number
   interval_minutes: number
@@ -238,7 +250,9 @@ export const monitorApi = {
   health: () => api.get('/system/health').then(r => unwrap<any>(r)),
   // Cookie（掩码模式，同 CrawlerAnalysis）
   cookieStatus: () => api.get('/system/cookies/status').then(r => unwrap<{ configured: boolean; masked: string }>(r)),
-  saveCookie: (cookie: string) => api.put('/system/cookies', { cookie }).then(r => unwrap<any>(r)),
+  cookieHealth: () => api.get('/system/cookies/health').then(r => unwrap<CookieHealth>(r)),
+  checkCookie: () => api.post('/system/cookies/check').then(r => unwrap<CookieHealth>(r)),
+  saveCookie: (cookie: string) => api.put('/system/cookies', { cookie }).then(r => unwrap<CookieHealth | null>(r)),
   // 一键清除数据（保留任务）
   clearAllData: () => api.post('/system/clear-all').then(r => unwrap<any>(r)),
   // 备份数据库

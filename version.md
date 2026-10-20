@@ -1,5 +1,13 @@
 # 版本记录
 
+## v0.2.2.33 (2026-10-13)
+
+- feat: Cookie 健康检查与顶栏告警
+  - 服务端每 15 分钟调用 nav 校验登录态；保存 Cookie 后立即校验
+  - GET /api/system/cookies/health；无效或超 72h 未刷新 → stale/invalid
+  - 顶栏导航旁红色 ⚠️ 点击进入设置；设置页显示检查时间与状态
+  - 文档 docs/edge-cookie-extension.md：Edge 扩展一键拷贝/推送 Cookie 探索
+
 ## v0.2.2.32 (2026-10-13)
 
 - feat: 设置页系统卡精简
